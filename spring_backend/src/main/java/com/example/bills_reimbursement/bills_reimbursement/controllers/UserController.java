@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/users")
@@ -21,12 +22,16 @@ public class UserController {
     private UserRepository userRepository;
 
     @GetMapping
-    public List<User> getAllUsers() {
-        return userRepository.findAllByOrderByNameAsc();
+    public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
+        List<UserResponseDTO> usersDto = userRepository.findAllByOrderByNameAsc()
+                .stream()
+                .map(this::toDto)
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(usersDto);
     }
 
     @GetMapping("/{employeeId}")
-    public ResponseEntity<User> getUser(@PathVariable Integer employeeId, Authentication authentication) {
+    public ResponseEntity<UserResponseDTO> getUser(@PathVariable Integer employeeId, Authentication authentication) {
         User userDetails = (User) authentication.getPrincipal();
         Integer loggedInEmployeeId = userDetails.getEmployeeId();
 
@@ -35,6 +40,7 @@ public class UserController {
         }
 
         return userRepository.findByEmployeeId(employeeId)
+                .map(this::toDto)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -64,14 +70,13 @@ public class UserController {
         existingUser.setName(updatedUserDetails.getName());
         existingUser.setPassword(updatedUserDetails.getPassword());
 
-        if (updatedUserDetails.getEmployeeId().equals(employeeId)) {
-            User savedUser = userRepository.save(existingUser);
-            return ResponseEntity.ok(
-                    Map.of("message", "User updated successfully", "id", savedUser.getEmployeeId()));
+        if (!updatedUserDetails.getEmployeeId().equals(employeeId)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "User id mismatch"));
         }
 
-        return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                .body(Map.of("error", "User id mismatch"));
+        User savedUser = userRepository.save(existingUser);
+        return ResponseEntity.ok(toDto(savedUser));
     }
 
     @DeleteMapping("/{employeeId}")
