@@ -42,10 +42,17 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(HttpMethod.POST, "/users").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users").permitAll() // registration
+
+                        // 👇 Authenticated users can manage their own bills
+                        .requestMatchers("/users/*/bills/**").authenticated()
+
+                        // 👇 Admin-only access for user management
                         .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
+
+                        // 👇 Fallback
                         .anyRequest().authenticated()
                 )
                 .httpBasic(Customizer.withDefaults());

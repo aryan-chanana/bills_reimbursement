@@ -1,5 +1,8 @@
-package com.example.bills_reimbursement.bills_reimbursement.models;
+package com.example.bills_reimbursement.bills_reimbursement.dtos;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -17,7 +20,13 @@ public class Bill {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "employee_id", nullable = false)
+    @JsonIgnore
     private User user;
+
+    @JsonProperty("employeeId")
+    public Integer getEmployeeId() {
+        return user != null ? user.getEmployeeId() : null;
+    }
 
     @Column(name = "reimbursement_for", nullable = false)
     private String reimbursementFor;

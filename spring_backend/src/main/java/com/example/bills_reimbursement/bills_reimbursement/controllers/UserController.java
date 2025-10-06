@@ -1,6 +1,7 @@
 package com.example.bills_reimbursement.bills_reimbursement.controllers;
 
-import com.example.bills_reimbursement.bills_reimbursement.models.User;
+import com.example.bills_reimbursement.bills_reimbursement.dtos.User;
+import com.example.bills_reimbursement.bills_reimbursement.dtos.UserResponseDTO;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -81,5 +82,15 @@ public class UserController {
         }
         userRepository.deleteById(employeeId);
         return ResponseEntity.ok(Map.of("message", "User has been deleted"));
+    }
+
+
+    // use this for all
+    public UserResponseDTO toDto(User user) {
+        UserResponseDTO userResponseDTO = new UserResponseDTO();
+        userResponseDTO.setEmployeeId(user.getEmployeeId());
+        userResponseDTO.setName(user.getName());
+        userResponseDTO.setAdmin(user.isAdmin());
+        return userResponseDTO;
     }
 }

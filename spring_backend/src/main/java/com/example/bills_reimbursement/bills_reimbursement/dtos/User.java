@@ -1,5 +1,6 @@
-package com.example.bills_reimbursement.bills_reimbursement.models;
+package com.example.bills_reimbursement.bills_reimbursement.dtos;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -25,6 +26,7 @@ public class User implements UserDetails {
     private String name;
 
     @Column(nullable = false)
+    @JsonIgnore
     private String password;
 
     @Column(name = "is_admin", nullable = false)

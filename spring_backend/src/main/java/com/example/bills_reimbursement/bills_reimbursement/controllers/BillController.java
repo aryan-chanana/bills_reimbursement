@@ -1,7 +1,8 @@
 package com.example.bills_reimbursement.bills_reimbursement.controllers;
 
-import com.example.bills_reimbursement.bills_reimbursement.models.Bill;
-import com.example.bills_reimbursement.bills_reimbursement.models.User;
+import com.example.bills_reimbursement.bills_reimbursement.dtos.Bill;
+import com.example.bills_reimbursement.bills_reimbursement.dtos.User;
+import com.example.bills_reimbursement.bills_reimbursement.dtos.UserResponseDTO;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.BillRepository;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 
 @RestController
@@ -27,10 +27,10 @@ public class BillController {
 
     @GetMapping
     public ResponseEntity<List<Bill>> getAllBills(@PathVariable Integer employeeId, Authentication authentication) {
-        User userDetails = (User) authentication.getPrincipal();
-        Integer loggedInEmployeeId = userDetails.getEmployeeId();
 
-        if (!userDetails.isAdmin() && !loggedInEmployeeId.equals(employeeId)) {
+        boolean loggedInUser = authenticateUser(employeeId, authentication);
+
+        if (!loggedInUser) {
             return ResponseEntity.status(403).build();
         }
 
@@ -46,54 +46,51 @@ public class BillController {
     @PostMapping
     public ResponseEntity<?> addBill(@RequestBody Bill bill, @PathVariable int employeeId, Authentication authentication) {
 
-        User userDetails = (User) authentication.getPrincipal();
-        Integer loggedInEmployeeId = userDetails.getEmployeeId();
+        boolean loggedInUser = authenticateUser(employeeId, authentication);
 
-        if (!userDetails.isAdmin() && !loggedInEmployeeId.equals(employeeId)) {
-            return ResponseEntity.status(403).build();
-        }
-
-        Optional<User> targetUserOpt = userRepository.findByEmployeeId(employeeId);
-        if (targetUserOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "User to associate bill with not found"));
-        }
-        bill.setUser(targetUserOpt.get());
-
-        Bill savedBill = billRepository.save(bill);
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(Map.of("message", "User created successfully", "id", savedBill.getBillId()));
-    }
-
-    @GetMapping("/{bill_id}")
-    public ResponseEntity<?> searchBill(@PathVariable Integer employeeId, @PathVariable Integer billId, Authentication authentication) {
-        User userDetails = (User) authentication.getPrincipal();
-        Integer loggedInEmployeeId = userDetails.getEmployeeId();
-
-        if (!userDetails.isAdmin() && !loggedInEmployeeId.equals(employeeId)) {
+        if (!loggedInUser) {
             return ResponseEntity.status(403).build();
         }
 
         Optional<User> targetUser = userRepository.findByEmployeeId(employeeId);
         if (targetUser.isEmpty()) {
-            return ResponseEntity.notFound().build();
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "User to associate bill with not found"));
+        }
+        bill.setUser(targetUser.get());
+
+        Bill savedBill = billRepository.save(bill);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("message", "Bill added successfully", "id", savedBill.getBillId()));
+    }
+
+    @GetMapping("/{billId}")
+    public ResponseEntity<?> searchBill(
+            @PathVariable("employeeId") Integer employeeId, @PathVariable("billId") Integer billId,
+            Authentication authentication) {
+        boolean loggedInUser = authenticateUser(employeeId, authentication);
+        if (!loggedInUser) {
+            return ResponseEntity.status(403).build();
         }
 
         Bill targetBill = billRepository.findById(billId).orElse(null);
-        if (Objects.nonNull(targetBill) && targetBill.getUser().getEmployeeId().equals(employeeId)) {
+        if (targetBill == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (targetBill.getUser().getEmployeeId().equals(employeeId)) {
             return ResponseEntity.ok(targetBill);
         }
-        return ResponseEntity.notFound().build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
     @PutMapping("/{billId}")
     public ResponseEntity<?> editBill(
-                                @RequestBody Bill updatedBillDetails, @PathVariable Integer employeeId,
-                                @PathVariable Integer billId, Authentication authentication) {
-        User userDetails = (User) authentication.getPrincipal();
-        Integer loggedInEmployeeId = userDetails.getEmployeeId();
+                                @RequestBody Bill updatedBillDetails, @PathVariable("employeeId") Integer employeeId,
+                                @PathVariable("billId") Integer billId, Authentication authentication) {
 
-        if (!userDetails.isAdmin() && !loggedInEmployeeId.equals(employeeId)) {
+        boolean loggedInUser = authenticateUser(employeeId, authentication);
+
+        if (!loggedInUser) {
             return ResponseEntity.status(403).build();
         }
 
@@ -115,6 +112,7 @@ public class BillController {
         existingBill.setAmount(updatedBillDetails.getAmount());
         existingBill.setDate(updatedBillDetails.getDate());
         existingBill.setBillImagePath(updatedBillDetails.getBillImagePath());
+        existingBill.setStatus(updatedBillDetails.getStatus());
 
         billRepository.save(existingBill);
         return ResponseEntity.ok(existingBill);
@@ -122,10 +120,10 @@ public class BillController {
 
     @DeleteMapping("/{billId}")
     public ResponseEntity<?> deleteBill(@PathVariable Integer employeeId, @PathVariable Integer billId, Authentication authentication) {
-        User userDetails = (User) authentication.getPrincipal();
-        Integer loggedInEmployeeId = userDetails.getEmployeeId();
 
-        if (!userDetails.isAdmin() && !loggedInEmployeeId.equals(employeeId)) {
+        boolean loggedInUser = authenticateUser(employeeId, authentication);
+
+        if (!loggedInUser) {
             return ResponseEntity.status(403).build();
         }
 
@@ -145,5 +143,11 @@ public class BillController {
 
         billRepository.delete(bill);
         return ResponseEntity.ok(Map.of("message", "Bill has been deleted successfully"));
+    }
+
+    private boolean authenticateUser(Integer employeeId, Authentication authentication) {
+        User userDetails = (User) authentication.getPrincipal();
+        Integer loggedInEmployeeId = userDetails.getEmployeeId();
+        return userDetails.isAdmin() || loggedInEmployeeId.equals(employeeId);
     }
 }
