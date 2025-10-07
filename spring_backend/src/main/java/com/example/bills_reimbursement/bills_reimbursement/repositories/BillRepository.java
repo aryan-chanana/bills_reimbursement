@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface BillRepository extends JpaRepository<Bill, Integer> {
     List<Bill> findAllByUser_EmployeeIdOrderByDateDesc(Integer employeeId);
+
+    List<Bill> findAllByOrderByDateDesc();
 }

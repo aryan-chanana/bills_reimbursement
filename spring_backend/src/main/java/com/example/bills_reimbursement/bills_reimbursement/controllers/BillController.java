@@ -2,21 +2,24 @@ package com.example.bills_reimbursement.bills_reimbursement.controllers;
 
 import com.example.bills_reimbursement.bills_reimbursement.dtos.Bill;
 import com.example.bills_reimbursement.bills_reimbursement.dtos.User;
-import com.example.bills_reimbursement.bills_reimbursement.dtos.UserResponseDTO;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.BillRepository;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepository;
+import com.example.bills_reimbursement.bills_reimbursement.services.FileStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 @RestController
-@RequestMapping("/users/{employeeId}/bills")
+@RequestMapping({"/users/{employeeId}/bills"})
 public class BillController {
 
     @Autowired
@@ -25,8 +28,11 @@ public class BillController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private FileStorageService fileStorageService;
+
     @GetMapping
-    public ResponseEntity<List<Bill>> getAllBills(@PathVariable Integer employeeId, Authentication authentication) {
+    public ResponseEntity<List<Bill>> getAllBillsForUser(@PathVariable Integer employeeId, Authentication authentication) {
 
         boolean loggedInUser = authenticateUser(employeeId, authentication);
 
@@ -44,7 +50,11 @@ public class BillController {
     }
 
     @PostMapping
-    public ResponseEntity<?> addBill(@RequestBody Bill bill, @PathVariable int employeeId, Authentication authentication) {
+    public ResponseEntity<?> addBill(@RequestParam("reimbursementFor") String reimbursementFor,
+                                     @RequestParam("amount") Double amount,
+                                     @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                     @RequestParam("billImage") MultipartFile billImage,
+                                     @PathVariable int employeeId, Authentication authentication) {
 
         boolean loggedInUser = authenticateUser(employeeId, authentication);
 
@@ -57,9 +67,17 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "User to associate bill with not found"));
         }
-        bill.setUser(targetUser.get());
 
-        Bill savedBill = billRepository.save(bill);
+        String fileName = fileStorageService.storeFile(billImage);
+
+        Bill newBill = new Bill();
+        newBill.setReimbursementFor(reimbursementFor);
+        newBill.setAmount(amount);
+        newBill.setDate(date);
+        newBill.setStatus("pending");
+        newBill.setUser(targetUser.get());
+        newBill.setBillImagePath(fileName);
+        Bill savedBill = billRepository.save(newBill);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("message", "Bill added successfully", "id", savedBill.getBillId()));
     }
@@ -83,6 +101,7 @@ public class BillController {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
+    // let's seperate edit bill info and change bill status
     @PutMapping("/{billId}")
     public ResponseEntity<?> editBill(
                                 @RequestBody Bill updatedBillDetails, @PathVariable("employeeId") Integer employeeId,
