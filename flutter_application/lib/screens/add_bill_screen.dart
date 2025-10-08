@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
+import '../services/ocr_service.dart';
 
 class AddBillScreen extends StatefulWidget {
   final int employeeId;
@@ -22,6 +23,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
   DateTime _selectedDate = DateTime.now();
   File? _imageFile;
   bool _isLoading = false;
+  bool _isAnalyzing = false;
 
   final List<String> _reimbursementCategories = [
     'Parking',
@@ -47,102 +49,110 @@ class _AddBillScreenState extends State<AddBillScreen> {
         backgroundColor: Colors.blue,
         foregroundColor: Colors.white,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: const InputDecoration(
-                  labelText: 'Reimbursement For',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.category),
-                ),
-                items: _reimbursementCategories.map((category) {
-                  return DropdownMenuItem(value: category, child: Text(category));
-                }).toList(),
-                onChanged: (value) {
-                  if (value != null) setState(() => _selectedCategory = value);
-                },
-              ),
-
-              const SizedBox(height: 16),
-
-              TextFormField(
-                controller: _amountController,
-                decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.currency_rupee)),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0) {
-                    return 'Please enter a valid amount';
-                  }
-                  return null;
-                },
-              ),
-
-              const SizedBox(height: 16),
-
-              InkWell(
-                onTap: _selectDate,
-                child: InputDecorator(
-                  decoration: const InputDecoration(labelText: 'Date', border: OutlineInputBorder(), prefixIcon: Icon(Icons.calendar_today)),
-                  child: Text(DateFormat('dd/MM/yyyy').format(_selectedDate), style: const TextStyle(fontSize: 16)),
-                ),
-              ),
-
-              const SizedBox(height: 24),
-
-              // Bill Image Section
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                child: Column(
-                  children: [
-                    const Text('Bill Image', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 16),
-                    // CHANGED: Use _imageFile instead of _billImagePath
-                    if (_imageFile != null)
-                      Container(
-                        height: 200,
-                        width: double.infinity,
-                        decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                        child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(_imageFile!, fit: BoxFit.cover)),
-                      )
-                    else
-                      Container(
-                        height: 200,
-                        width: double.infinity,
-                        decoration: BoxDecoration(color: Colors.grey[200], border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                        child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.image, size: 64, color: Colors.grey), Text('No image selected', style: TextStyle(color: Colors.grey))]),
-                      ),
-                    const SizedBox(height: 16),
-                    Row(
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  DropdownButtonFormField<String>(
+                    value: _selectedCategory,
+                    decoration: const InputDecoration(
+                      labelText: 'Reimbursement For',
+                      border: OutlineInputBorder(),
+                      prefixIcon: Icon(Icons.category),
+                    ),
+                    items: _reimbursementCategories.map((category) {
+                      return DropdownMenuItem(value: category, child: Text(category));
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) setState(() => _selectedCategory = value);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _amountController,
+                    decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.currency_rupee)),
+                    keyboardType: TextInputType.number,
+                    validator: (value) {
+                      if (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0) {
+                        return 'Please enter a valid amount';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  InkWell(
+                    onTap: _selectDate,
+                    child: InputDecorator(
+                      decoration: const InputDecoration(labelText: 'Date', border: OutlineInputBorder(), prefixIcon: Icon(Icons.calendar_today)),
+                      child: Text(DateFormat('dd/MM/yyyy').format(_selectedDate), style: const TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+                    child: Column(
                       children: [
-                        Expanded(child: OutlinedButton.icon(onPressed: () => _pickImage(ImageSource.gallery), icon: const Icon(Icons.photo_library), label: const Text('Gallery'))),
-                        const SizedBox(width: 8),
-                        Expanded(child: OutlinedButton.icon(onPressed: () => _pickImage(ImageSource.camera), icon: const Icon(Icons.camera_alt), label: const Text('Camera'))),
+                        const Text('Bill Image', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 16),
+                        if (_imageFile != null)
+                          Container(
+                            height: 200,
+                            width: double.infinity,
+                            decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+                            child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(_imageFile!, fit: BoxFit.cover)),
+                          )
+                        else
+                          Container(
+                            height: 200,
+                            width: double.infinity,
+                            decoration: BoxDecoration(color: Colors.grey[200], border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
+                            child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.image, size: 64, color: Colors.grey), Text('No image selected', style: TextStyle(color: Colors.grey))]),
+                          ),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(child: OutlinedButton.icon(onPressed: () => _pickAndProcessImage(ImageSource.gallery), icon: const Icon(Icons.photo_library), label: const Text('Gallery'))),
+                            const SizedBox(width: 8),
+                            Expanded(child: OutlinedButton.icon(onPressed: () => _pickAndProcessImage(ImageSource.camera), icon: const Icon(Icons.camera_alt), label: const Text('Camera'))),
+                          ],
+                        ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 32),
+                  SizedBox(
+                    height: 50,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _submitBill,
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                      child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Submit Bill', style: TextStyle(fontSize: 16)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_isAnalyzing)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Analyzing bill...', style: TextStyle(color: Colors.white, fontSize: 16)),
                   ],
                 ),
               ),
-
-              const SizedBox(height: 32),
-
-              SizedBox(
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _isLoading ? null : _submitBill,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                  child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Submit Bill', style: TextStyle(fontSize: 16)),
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+        ],
       ),
     );
   }
@@ -154,12 +164,38 @@ class _AddBillScreenState extends State<AddBillScreen> {
     }
   }
 
-  Future<void> _pickImage(ImageSource source) async {
+  Future<void> _pickAndProcessImage(ImageSource source) async {
     final pickedFile = await ImagePicker().pickImage(source: source);
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
+    if (pickedFile == null) return;
+
+    final imageFile = File(pickedFile.path);
+    setState(() {
+      _imageFile = imageFile;
+      _isAnalyzing = true;
+    });
+
+    try {
+      final extractedData = await OcrService.processImage(imageFile);
+      print("DEBUG OCR Result: $extractedData");
+
+      if (extractedData['amount'] != null) {
+        _amountController.text = (extractedData['amount'] as double).toStringAsFixed(2);
+      }
+      if (extractedData['date'] != null) {
+        setState(() {
+          _selectedDate = extractedData['date'] as DateTime;
+        });
+      }
+      if (extractedData['category'] != null) {
+        setState(() {
+          _selectedCategory = extractedData['category'] as String;
+        });
+      }
+
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not analyze image.'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isAnalyzing = false);
     }
   }
 
@@ -174,14 +210,12 @@ class _AddBillScreenState extends State<AddBillScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Get user credentials from storage
       final prefs = await SharedPreferences.getInstance();
       final password = prefs.getString('password');
       if (password == null) {
         throw Exception("User credentials not found.");
       }
 
-      // Call the new ApiService method
       final success = await ApiService.addBill(
         employeeId: widget.employeeId,
         password: password,
