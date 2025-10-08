@@ -12,6 +12,9 @@ import java.net.MalformedURLException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+/*
+    Controller to serve uploaded files (e.g., bill images).
+*/
 @RestController
 public class FileController {
 

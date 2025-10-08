@@ -18,6 +18,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/*
+    Controller for bill-specific operations like adding, retrieving, updating, and deleting bills.
+*/
 @RestController
 @RequestMapping({"/users/{employeeId}/bills"})
 public class BillController {
@@ -83,9 +86,8 @@ public class BillController {
     }
 
     @GetMapping("/{billId}")
-    public ResponseEntity<?> searchBill(
-            @PathVariable("employeeId") Integer employeeId, @PathVariable("billId") Integer billId,
-            Authentication authentication) {
+    public ResponseEntity<?> searchBill(@PathVariable("employeeId") Integer employeeId,
+                                        @PathVariable("billId") Integer billId, Authentication authentication) {
         boolean loggedInUser = authenticateUser(employeeId, authentication);
         if (!loggedInUser) {
             return ResponseEntity.status(403).build();
@@ -101,11 +103,10 @@ public class BillController {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
     }
 
-    // let's seperate edit bill info and change bill status
     @PutMapping("/{billId}")
-    public ResponseEntity<?> editBill(
-                                @RequestBody Bill updatedBillDetails, @PathVariable("employeeId") Integer employeeId,
-                                @PathVariable("billId") Integer billId, Authentication authentication) {
+    public ResponseEntity<?> editBill(@RequestBody Bill updatedBillDetails,
+                                      @PathVariable("employeeId") Integer employeeId,
+                                      @PathVariable("billId") Integer billId, Authentication authentication) {
 
         boolean loggedInUser = authenticateUser(employeeId, authentication);
 
@@ -123,7 +124,7 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
 
-        if ("APPROVED".equalsIgnoreCase(existingBill.getStatus())) {
+        if ("APPROVED".equalsIgnoreCase(existingBill.getStatus()) || "REJECTED".equalsIgnoreCase(existingBill.getStatus())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot edit an approved bill."));
         }
 
@@ -138,7 +139,8 @@ public class BillController {
     }
 
     @DeleteMapping("/{billId}")
-    public ResponseEntity<?> deleteBill(@PathVariable Integer employeeId, @PathVariable Integer billId, Authentication authentication) {
+    public ResponseEntity<?> deleteBill(@PathVariable Integer employeeId,
+                                        @PathVariable Integer billId, Authentication authentication) {
 
         boolean loggedInUser = authenticateUser(employeeId, authentication);
 
@@ -156,7 +158,7 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
 
-        if ("APPROVED".equalsIgnoreCase(bill.getStatus())) {
+        if ("APPROVED".equalsIgnoreCase(bill.getStatus()) || "REJECTED".equalsIgnoreCase(bill.getStatus())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot delete an approved bill."));
         }
 

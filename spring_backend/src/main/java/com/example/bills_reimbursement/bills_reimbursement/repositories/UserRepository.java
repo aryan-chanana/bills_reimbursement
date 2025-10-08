@@ -7,6 +7,6 @@ import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Integer> {
     List<User> findAllByOrderByNameAsc();
-    Optional<User> findByEmployeeId(Integer employeeId);
 
+    Optional<User> findByEmployeeId(Integer employeeId);
 }

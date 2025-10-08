@@ -1,6 +1,5 @@
 package com.example.bills_reimbursement.bills_reimbursement.dtos;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -63,5 +62,13 @@ public class User implements UserDetails {
     @Override
     public boolean isEnabled() {
         return true;
+    }
+
+    public static UserResponseDTO toDto(User user) {
+        UserResponseDTO userResponseDTO = new UserResponseDTO();
+        userResponseDTO.setEmployeeId(user.getEmployeeId());
+        userResponseDTO.setName(user.getName());
+        userResponseDTO.setAdmin(user.isAdmin());
+        return userResponseDTO;
     }
 }

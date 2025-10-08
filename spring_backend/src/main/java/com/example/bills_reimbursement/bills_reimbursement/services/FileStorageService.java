@@ -31,7 +31,7 @@ public class FileStorageService {
         if (originalFileName != null && originalFileName.contains(".")) {
             fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
         }
-        String uniqueFileName = UUID.randomUUID().toString() + fileExtension;
+        String uniqueFileName = UUID.randomUUID() + fileExtension;
 
         try {
             Path targetLocation = this.fileStorageLocation.resolve(uniqueFileName);
