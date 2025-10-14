@@ -7,7 +7,7 @@ import '../models/user_model.dart';
 import 'package:intl/intl.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://172.16.120.53:8080';
+  static const String baseUrl = 'http://192.168.102.109:8080';
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
     String basicAuth = 'Basic ${base64Encode(utf8.encode('$employeeId:$password'))}';
@@ -64,7 +64,11 @@ class ApiService {
     }
   }
 
-  static Future<bool> editUser({required String adminId, required String adminPassword, required int employeeIdToEdit, required String newName, required String newPassword,}) async {
+  static Future<bool> editUser({required String adminId,
+                                required String adminPassword,
+                                required int employeeIdToEdit,
+                                required String newName,
+                                required String newPassword}) async {
     final response = await http.put(
       Uri.parse('$baseUrl/users/$employeeIdToEdit'),
       headers: getAuthHeaders(adminId, adminPassword),
@@ -77,7 +81,9 @@ class ApiService {
     return response.statusCode == 200;
   }
 
-  static Future<bool> deleteUser({required String adminId, required String adminPassword, required int employeeIdToDelete,}) async {
+  static Future<bool> deleteUser({required String adminId,
+                                  required String adminPassword,
+                                  required int employeeIdToDelete}) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/users/$employeeIdToDelete'),
       headers: getAuthHeaders(adminId, adminPassword),
@@ -86,7 +92,12 @@ class ApiService {
   }
 
   // Bills
-  static Future<bool> addBill({required int employeeId, required String password, required String reimbursementFor, required double amount, required DateTime date, required File billImage}) async {
+  static Future<bool> addBill({required int employeeId,
+                               required String password,
+                               required String reimbursementFor,
+                               required double amount,
+                               required DateTime date,
+                               required File billImage}) async {
 
     var request = http.MultipartRequest(
       'POST',
@@ -137,7 +148,10 @@ class ApiService {
     }
   }
 
-  static Future<bool> changeStatus({required int employeeId, required String password, required int billId, String? status}) async {
+  static Future<bool> changeStatus({required int employeeId,
+                                    required String password,
+                                    required int billId,
+                                    String? status}) async {
     Map<String, dynamic> body = {};
     if (status != null) body['status'] = status;
 
@@ -156,7 +170,10 @@ class ApiService {
     }
   }
 
-  static Future<bool> editBill({required String employeeId, required String password, required int billId, required Bill updatedBill}) async {
+  static Future<bool> editBill({required String employeeId,
+                                required String password,
+                                required int billId,
+                                required Bill updatedBill}) async {
     final response = await http.put(
       Uri.parse('$baseUrl/users/$employeeId/bills/$billId'),
       headers: getAuthHeaders(employeeId, password),
@@ -173,7 +190,9 @@ class ApiService {
     return response.statusCode == 200;
   }
 
-  static Future<bool> deleteBill({required String employeeId, required String password, required int billId,}) async {
+  static Future<bool> deleteBill({required String employeeId,
+                                  required String password,
+                                  required int billId,}) async {
     final response = await http.delete(
       Uri.parse('$baseUrl/users/$employeeId/bills/$billId'),
       headers: getAuthHeaders(employeeId, password),

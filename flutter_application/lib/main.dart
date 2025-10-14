@@ -44,14 +44,10 @@ class _SplashScreenState extends State<SplashScreen> {
     _checkLoginStatus();
   }
 
-  // --- THIS METHOD IS NOW PROTECTED WITH A TRY-CATCH BLOCK ---
   Future<void> _checkLoginStatus() async {
-    // We add a try-catch block to handle any potential errors during startup
     try {
-      // Your existing logic goes inside the 'try' block
       await Future.delayed(const Duration(seconds: 2));
 
-      // Use 'if (mounted)' to ensure the widget is still in the tree
       if (!mounted) return;
 
       SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -68,8 +64,6 @@ class _SplashScreenState extends State<SplashScreen> {
         Navigator.pushReplacementNamed(context, '/login');
       }
     } catch (e) {
-      // If any error occurs (e.g., cannot read preferences),
-      // we print the error and safely navigate to the login screen.
       print('Error checking login status: $e');
       if (mounted) {
         Navigator.pushReplacementNamed(context, '/login');

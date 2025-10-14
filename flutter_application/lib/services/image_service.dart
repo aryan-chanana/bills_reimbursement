@@ -49,14 +49,11 @@ class ImageService {
     final Directory appDocDir = await getApplicationDocumentsDirectory();
     final String billsDir = path.join(appDocDir.path, 'bill_images');
 
-    // Create directory if it doesn't exist
     await Directory(billsDir).create(recursive: true);
 
-    // Generate unique filename
     final String fileName = 'bill_${DateTime.now().millisecondsSinceEpoch}.jpg';
     final String filePath = path.join(billsDir, fileName);
 
-    // Copy file to app directory
     final File savedImage = await imageFile.copy(filePath);
     return savedImage.path;
   }

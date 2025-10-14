@@ -26,11 +26,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
   bool _isAnalyzing = false;
 
   final List<String> _reimbursementCategories = [
-    'Parking',
-    'Travel',
-    'Food',
-    'Office Supplies',
-    'Other'
+    'Parking', 'Travel', 'Food', 'Office Supplies', 'Other'
   ];
 
   @override
