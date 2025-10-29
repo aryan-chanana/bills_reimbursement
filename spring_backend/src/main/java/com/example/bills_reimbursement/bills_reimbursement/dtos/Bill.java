@@ -41,4 +41,10 @@ public class Bill {
 
     @Column(nullable = false)
     private String status;
+
+    @Column
+    private String remarks;
+
+    @Column(name = "created_at")
+    private LocalDate createdAt;
 }

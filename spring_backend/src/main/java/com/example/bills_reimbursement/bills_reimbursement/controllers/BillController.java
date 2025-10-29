@@ -124,7 +124,7 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
 
-        if ("APPROVED".equalsIgnoreCase(existingBill.getStatus()) || "REJECTED".equalsIgnoreCase(existingBill.getStatus())) {
+        if ("APPROVED".equalsIgnoreCase(existingBill.getStatus())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot edit an approved bill."));
         }
 

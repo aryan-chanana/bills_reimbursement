@@ -95,12 +95,14 @@ public class AdminController {
         }
 
         String newStatus = statusUpdate.get("status");
+        String remarks = statusUpdate.get("remarks");
         if (newStatus == null || newStatus.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "Status is required"));
         }
 
         bill.setStatus(newStatus.toUpperCase());
+        bill.setRemarks(remarks);
         billRepository.save(bill);
 
         return ResponseEntity.ok(Map.of(
