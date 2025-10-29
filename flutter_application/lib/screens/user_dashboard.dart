@@ -173,8 +173,9 @@ class _UserDashboardState extends State<UserDashboard> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text('Amount: ₹${bill.amount.toStringAsFixed(2)}'),
-                          Text('Date: ${DateFormat('dd/MM/yyyy').format(bill.date)}'),
+                          Text('Bill Date: ${DateFormat('dd/MM/yyyy').format(bill.date)}'),
                           Text('Status: ${bill.status.toUpperCase()}', style: TextStyle(color: _getStatusColor(bill.status), fontWeight: FontWeight.bold)),
+                          Text('Submission Date: ${bill.createdAt}'),
                         ],
                       ),
 
@@ -277,6 +278,7 @@ class _UserDashboardState extends State<UserDashboard> {
                     date: selectedDate,
                     billImagePath: bill.billImagePath, // Image path doesn't change on edit
                     status: bill.status,
+                    remarks: bill.remarks,
                     employeeId: bill.employeeId,
                   );
 

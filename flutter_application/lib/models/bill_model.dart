@@ -6,6 +6,8 @@ class Bill {
   final DateTime date;
   final String billImagePath;
   final String status;
+  final String? remarks;
+  final DateTime? createdAt;
 
   Bill({
     required this.billId,
@@ -14,7 +16,9 @@ class Bill {
     required this.amount,
     required this.date,
     required this.billImagePath,
+    this.remarks,
     required this.status,
+    this.createdAt
   });
 
   factory Bill.fromJson(Map<String, dynamic> json) {
@@ -25,7 +29,9 @@ class Bill {
       date: DateTime.parse(json['date']),
       billImagePath: json['billImagePath'],
       status: json['status'],
+      remarks: json['remarks']?.toString(),
       employeeId: json['employeeId'],
+      createdAt: DateTime.parse(json['createdAt'])
     );
   }
 }

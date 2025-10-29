@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../models/bill_model.dart';
@@ -82,7 +81,6 @@ class _AdminDashboardState extends State<AdminDashboard>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading data: ${e.toString()}'), backgroundColor: Colors.red),
         );
-        _logout(); // Logout if there's a critical error
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -237,12 +235,53 @@ class _AdminDashboardState extends State<AdminDashboard>
                 orElse: () => User(employeeId: 0, name: 'Unknown', password: '', isAdmin: false),
               );
               return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 3,
                 child: ExpansionTile(
-                  leading: CircleAvatar(backgroundColor: _getStatusColor(bill.status)),
-                  title: Text('${employee.name} - ${bill.reimbursementFor}'),
-                  subtitle: Text('₹${bill.amount.toStringAsFixed(2)} • ${DateFormat('dd/MM/yyyy').format(bill.date)}'),
-                  trailing: Chip(label: Text(bill.status.toUpperCase(), style: const TextStyle(color: Colors.white)), backgroundColor: _getStatusColor(bill.status)),
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  title: Text('${employee.name} - ${bill.reimbursementFor}',
+                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15), overflow: TextOverflow.ellipsis),
+
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 8),
+                      Row(children: [const Text('💰 '),
+                        Flexible(
+                          child: Text(
+                            'Amount: ₹${bill.amount.toStringAsFixed(2)}',
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
+                          ),
+                        )
+                      ]),
+                      const SizedBox(height: 4),
+                      Row(children: [const Text('📅 '),
+                        Flexible(
+                          child: Text(
+                            'Bill Date: ${DateFormat('dd/MM/yyyy').format(bill.date)}',
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
+                          ),
+                        )
+                      ]),
+                      const SizedBox(height: 4),
+                      Row(children: [const Text('🕒 '),
+                        Flexible(
+                          child: Text(
+                            'Submission: ${DateFormat('dd/MM/yyyy').format(bill.createdAt!)}',
+                            overflow: TextOverflow.ellipsis,
+                            softWrap: false,
+                          ),
+                        )
+                      ]),
+                    ],
+                  ),
+                  trailing: Chip(
+                    label: Text(bill.status.toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    backgroundColor: _getStatusColor(bill.status),
+                  ),
                   children: [_buildBillDetails(bill, employee)],
                 ),
               );
@@ -268,74 +307,78 @@ class _AdminDashboardState extends State<AdminDashboard>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Employee: ${employee.name} (${employee.employeeId})'),
-                    Text('Category: ${bill.reimbursementFor}'),
-                    Text('Amount: ₹${bill.amount.toStringAsFixed(2)}'),
-                    Text('Date: ${DateFormat('dd/MM/yyyy').format(bill.date)}'),
+                    Text('Employee: ${employee.name} (${employee.employeeId})', style: const TextStyle(fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 6),
+                    Text('Category: ${bill.reimbursementFor}', overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    Text('Amount: ₹${bill.amount.toStringAsFixed(2)}', overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    Text('Bill Date: ${DateFormat('dd/MM/yyyy').format(bill.date)}', overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 4),
+                    Text('Submission: ${DateFormat('dd/MM/yyyy').format(bill.createdAt!)}', overflow: TextOverflow.ellipsis),
+                    if (bill.status.toLowerCase() == 'rejected' && (bill.remarks?.isNotEmpty ?? false)) ...[
+                      const SizedBox(height: 8),
+                      Text('Remarks: ${bill.remarks}', style: const TextStyle(color: Colors.redAccent)),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
               GestureDetector(
                 onTap: () {
-                    final imageWidget = Image.network(
-                      imageUrl,
-                      headers: headers,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.error, color: Colors.red),
-                    );
-                    _showBillImageDialog(imageWidget);
+                  final imageWidget = Image.network(
+                    imageUrl,
+                    headers: headers,
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) => const Icon(Icons.error, color: Colors.red),
+                  );
+                  _showBillImageDialog(imageWidget);
                 },
                 child: Container(
                   width: 100,
                   height: 100,
-                  decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                  child: Image.network(
-                    imageUrl,
-                    headers: headers,
-                    fit: BoxFit.cover,
-                    loadingBuilder: (context, child, progress) {
-                      if (progress == null) return child;
-                      return const Center(child: CircularProgressIndicator());
-                    },
-                    errorBuilder: (context, error, stackTrace) {
-                      return const Icon(Icons.error, color: Colors.red);
-                    },
+                  decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(8)),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      imageUrl,
+                      headers: headers,
+                      fit: BoxFit.cover,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return const Center(child: CircularProgressIndicator());
+                      },
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(Icons.broken_image, color: Colors.red);
+                      },
+                    ),
                   ),
                 ),
               ),
             ],
           ),
-          if (bill.status == 'pending') ...[
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _updateBillStatus(bill, 'APPROVED'),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Approve'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
+          const SizedBox(height: 12),
+          if (bill.status.toLowerCase() == 'pending') Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _onApprovePressed(bill),
+                  icon: const Text('✅'),
+                  label: const Text('Approve'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _updateBillStatus(bill, 'REJECTED'),
-                    icon: const Icon(Icons.close),
-                    label: const Text('Reject'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
-                    ),
-                  ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => _showRejectDialog(bill),
+                  icon: const Text('❌'),
+                  label: const Text('Reject', style: TextStyle(color: Colors.white)),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 ),
-              ],
-            ),
-          ]
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -345,25 +388,31 @@ class _AdminDashboardState extends State<AdminDashboard>
     showDialog(
       context: context,
       builder: (context) => Dialog(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppBar(
-              title: const Text('Bill Image'),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: imageWidget,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppBar(
+                title: const Text('Bill Image'),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
               ),
-            ),
-          ],
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: imageWidget,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -503,7 +552,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                 }
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Delete'),
+              child: const Text('Delete', style: TextStyle(color: Colors.white),),
             ),
           ],
         );
@@ -544,37 +593,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
   }
 
-  Future<void> _updateBillStatus(Bill bill, String status) async {
-    final prefs = await SharedPreferences.getInstance();
-    final adminId = prefs.getInt('employee_id');
-    final adminPassword = prefs.getString('password');
-
-    if (adminId == null || adminPassword == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Admin credentials not found'), backgroundColor: Colors.red),
-      );
-      return;
-    }
-
-    final success = await ApiService.changeStatus(
-      employeeId: adminId,
-      password: adminPassword!,
-      billId: bill.billId,
-      status: status.toUpperCase(),
-    );
-
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Bill ${status.toLowerCase()} successfully'), backgroundColor: Colors.green),
-      );
-      _loadData(); // Refresh the list
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update bill status'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
   Future<void> _generateExcel() async {
     try {
       await ExcelService.instance.generateBillsReport(_filteredBills, _employees);
@@ -588,6 +606,87 @@ class _AdminDashboardState extends State<AdminDashboard>
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     Navigator.pushReplacementNamed(context, '/login');
+  }
+
+  Future<void> _onApprovePressed(Bill bill) async {
+    final prefs = await SharedPreferences.getInstance();
+    final adminId = prefs.getInt('employee_id');
+    final adminPassword = prefs.getString('password');
+    if (adminId == null || adminPassword == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin credentials not found'), backgroundColor: Colors.red));
+      return;
+    }
+
+    final success = await ApiService.changeStatus(
+      employeeId: adminId,
+      password: adminPassword,
+      billId: bill.billId,
+      status: "APPROVED",
+    );
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill approved'), backgroundColor: Colors.green));
+      _loadData();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to approve bill'), backgroundColor: Colors.red));
+    }
+  }
+
+  Future<void> _showRejectDialog(Bill bill) async {
+    final remarkController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Reject Bill'),
+        content: TextField(
+          controller: remarkController,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            labelText: 'Remarks (required)',
+            hintText: 'Enter reason for rejection',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final remarks = remarkController.text.trim();
+              if (remarks.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter remarks'), backgroundColor: Colors.orange));
+                return;
+              }
+
+              Navigator.pop(context);
+              final prefs = await SharedPreferences.getInstance();
+              final adminId = prefs.getInt('employee_id');
+              final adminPassword = prefs.getString('password');
+              if (adminId == null || adminPassword == null) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin credentials not found'), backgroundColor: Colors.red));
+                return;
+              }
+
+              final success = await ApiService.changeStatus(
+                employeeId: adminId,
+                password: adminPassword,
+                billId: bill.billId,
+                status: "REJECTED",
+                remarks: remarks
+              );
+
+              if (success) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill rejected'), backgroundColor: Colors.green));
+                _loadData();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to reject bill'), backgroundColor: Colors.red));
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Reject', style: TextStyle(color: Colors.white))
+          ),
+        ],
+      ),
+    );
   }
 
   @override
