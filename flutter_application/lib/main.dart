@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/login_screen.dart';
 import 'screens/user_dashboard.dart';
@@ -8,6 +9,11 @@ import 'package:flutter_native_splash/flutter_native_splash.dart';
 void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
+
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
 
   String initialRoute = '/login';
   try {
@@ -24,8 +30,8 @@ void main() async {
   }
 
   runApp(MyApp(initialRoute: initialRoute));
-  // await Future.delayed(const Duration(milliseconds: 500));
-  // FlutterNativeSplash.remove();
+  await Future.delayed(const Duration(milliseconds: 500));
+  FlutterNativeSplash.remove();
 }
 
 class MyApp extends StatelessWidget {

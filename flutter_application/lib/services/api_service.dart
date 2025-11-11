@@ -7,7 +7,7 @@ import '../models/user_model.dart';
 import 'package:intl/intl.dart';
 
 class ApiService {
-  static const String baseUrl = 'http://192.168.1.7:8080';
+  static const String baseUrl = 'http://192.168.102.109:8080';
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
     String basicAuth = 'Basic ${base64Encode(utf8.encode('$employeeId:$password'))}';
@@ -148,10 +148,7 @@ class ApiService {
     }
   }
 
-  static Future<bool> changeStatus({required int employeeId,
-                                    required String password,
-                                    required int billId,
-                                    String? status, String? remarks}) async {
+  static Future<bool> changeStatus({required int employeeId, required String password, required int billId, String? status, String? remarks}) async {
     Map<String, dynamic> body = {};
     if (status != null) {
       body['status'] = status;
@@ -173,23 +170,26 @@ class ApiService {
     }
   }
 
-  static Future<bool> editBill({required String employeeId,
-                                required String password,
-                                required int billId,
-                                required Bill updatedBill}) async {
-    final response = await http.put(
+  static Future<bool> editBill({required String employeeId, required String password, required int billId, required String reimbursementFor, required double amount, required DateTime date, File? billImage}) async {
+    var request = http.MultipartRequest(
+      'PUT',
       Uri.parse('$baseUrl/users/$employeeId/bills/$billId'),
-      headers: getAuthHeaders(employeeId, password),
-      body: jsonEncode({
-        'billId': updatedBill.billId,
-        'reimbursementFor': updatedBill.reimbursementFor,
-        'amount': updatedBill.amount,
-        'date': DateFormat('yyyy-MM-dd').format(updatedBill.date),
-        'status': updatedBill.status,
-        'billImagePath': updatedBill.billImagePath,
-        'user': { 'employeeId': int.parse(employeeId) }
-      }),
     );
+
+    String basicAuth = 'Basic ${base64Encode(utf8.encode('$employeeId:$password'))}';
+    request.headers['Authorization'] = basicAuth;
+
+    request.fields['reimbursementFor'] = reimbursementFor;
+    request.fields['amount'] = amount.toString();
+    request.fields['date'] = DateFormat('yyyy-MM-dd').format(date);
+
+    if (billImage != null) {
+      request.files.add(await http.MultipartFile.fromPath('billImage', billImage.path),
+      );
+    }
+
+    var response = await request.send();
+
     return response.statusCode == 200;
   }
 

@@ -2,6 +2,7 @@ import 'package:bills_reimbursement/services/api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
+import '../services/ConnectivityService.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -21,104 +22,170 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey[100],
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
-            child: Card(
-              elevation: 8,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(32.0),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFe3f2fd), Color(0xFFbbdefb)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.all(32),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black12.withOpacity(0.08),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
-                        Icons.receipt_long,
-                        size: 80,
-                        color: Colors.blue,
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        _isSignUp ? 'Sign Up' : 'Login',
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+
+                      // Animated Icon
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        child: Icon(
+                          _isSignUp ? Icons.person_add_alt_1 : Icons.login,
+                          key: ValueKey(_isSignUp),
+                          size: 90,
+                          color: Colors.blueAccent,
                         ),
                       ),
+
+                      const SizedBox(height: 16),
+
+                      // Title
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: Text(
+                          _isSignUp ? "Create Account" : "Welcome",
+                          key: ValueKey(_isSignUp),
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 4),
+                      Text(
+                        _isSignUp
+                            ? "Fill details to get started"
+                            : "Login to continue",
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+
                       const SizedBox(height: 32),
+
+                      // Employee ID
                       TextFormField(
                         controller: _employeeIdController,
-                        decoration: const InputDecoration(
-                          labelText: 'Employee ID',
-                          prefixIcon: Icon(Icons.badge),
-                          border: OutlineInputBorder(),
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: InputDecoration(
+                          labelText: "Employee ID",
+                          prefixIcon: const Icon(Icons.badge_outlined),
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your employee ID';
-                          }
-                          return null;
-                        },
+                        validator: (v) =>
+                        v == null || v.isEmpty ? "Required field" : null,
                       ),
+
                       const SizedBox(height: 16),
+
+                      // Password
                       TextFormField(
                         controller: _passwordController,
-                        obscureText: true, // This hides the text (for passwords)
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: Icon(Icons.lock),
-                          border: OutlineInputBorder(),
+                        obscureText: true,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: InputDecoration(
+                          labelText: "Password",
+                          prefixIcon: const Icon(Icons.lock_outline),
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return 'Please enter your password';
-                          }
-                          return null;
-                        },
+                        validator: (v) =>
+                        v == null || v.isEmpty ? "Required field" : null,
                       ),
+
+                      if (_isSignUp) const SizedBox(height: 16),
+
+                      // Full Name (only signup)
                       if (_isSignUp)
                         TextFormField(
                           controller: _nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Full Name',
-                            prefixIcon: Icon(Icons.person),
-                            border: OutlineInputBorder(),
+                          style: const TextStyle(fontSize: 16),
+                          decoration: InputDecoration(
+                            labelText: "Full Name",
+                            prefixIcon: const Icon(Icons.person_outline),
+                            filled: true,
+                            fillColor: Colors.grey.shade100,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                           ),
-                          validator: (value) {
-                            if (_isSignUp && (value == null || value.isEmpty)) {
-                              return 'Please enter your full name';
+                          validator: (v) {
+                            if (_isSignUp && (v == null || v.isEmpty)) {
+                              return "Enter your name";
                             }
                             return null;
                           },
                         ),
-                      if (_isSignUp) const SizedBox(height: 24),
-                      if (!_isSignUp) const SizedBox(height: 24),
+
+                      const SizedBox(height: 28),
+
+                      // Submit Button
                       SizedBox(
                         width: double.infinity,
                         height: 50,
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleSubmit,
                           style: ElevatedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor: Colors.blueAccent,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                              borderRadius: BorderRadius.circular(12),
                             ),
+                            elevation: 4,
                           ),
                           child: _isLoading
-                              ? const CircularProgressIndicator(color: Colors.white)
+                              ? const CircularProgressIndicator(
+                              color: Colors.white)
                               : Text(
-                            _isSignUp ? 'Sign Up' : 'Login',
-                            style: const TextStyle(fontSize: 16),
+                            _isSignUp ? "Sign Up" : "Login",
+                            style: const TextStyle(fontSize: 17),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
+
+                      const SizedBox(height: 18),
+
+                      // Switch Login/Signup
                       TextButton(
                         onPressed: () {
                           setState(() {
@@ -128,13 +195,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         },
                         child: Text(
                           _isSignUp
-                              ? 'Already have an account? Login'
-                              : 'Don\'t have an account? Sign Up',
+                              ? "Already have an account? Login"
+                              : "Don't have an account? Sign Up",
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.blueAccent,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      const Divider(),
-                      const SizedBox(height: 8),
+
                     ],
                   ),
                 ),
@@ -158,39 +228,47 @@ class _LoginScreenState extends State<LoginScreen> {
       final password = _passwordController.text.trim();
       final name = _nameController.text.trim();
 
-      if (_isSignUp) {
-        bool success = await ApiService.signUp(employeeId, name, password);
-        if (success) {
-          final user = await ApiService.login(employeeId, password);
-          if (user != null) {
-            await _saveUserSession(user, password);
-            _navigateToUserDashboard();
-          } else {
-            _showErrorDialog('Sign-up succeeded but auto-login failed.');
-          }
-        } else {
-          _showErrorDialog('Sign-up failed. Employee ID already exist.');
-        }
-
+      final bool backendAvailable = await ConnectivityService.isBackendAvailable();
+      if (!backendAvailable) {
+        _showErrorDialog("\nUnable to connect to server.\nPlease try again later.");
       }
       else {
-        final user = await ApiService.login(employeeId, password);
-        if (user == null) {
-          _showErrorDialog('Invalid Employee ID or Password');
-          return;
+        if (_isSignUp) {
+          bool success = await ApiService.signUp(employeeId, name, password);
+          if (success) {
+            final user = await ApiService.login(employeeId, password);
+            if (user != null) {
+              await _saveUserSession(user, password);
+              _navigateToUserDashboard();
+            } else {
+              _showErrorDialog('Sign-up succeeded but auto-login failed.');
+            }
+          } else {
+            _showErrorDialog('Sign-up failed. Employee ID already exist.');
+          }
+
         }
+        else {
+          final user = await ApiService.login(employeeId, password);
+          if (user == null) {
+            _showErrorDialog('Invalid Employee ID or Password');
+            return;
+          }
 
-        await _saveUserSession(user, password);
-
-        if (user.isAdmin) {
-          _navigateToAdminDashboard();
-        } else {
-          _navigateToUserDashboard();
+          await _saveUserSession(user, password);
+          if (user.isAdmin) {
+            _navigateToAdminDashboard();
+          } else {
+            _navigateToUserDashboard();
+          }
         }
       }
     }
     catch (e) {
-      _showErrorDialog('An error occurred. Please check your connection.');
+      print("LOGIN / SIGNUP ERROR = $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+      }
     } finally {
       setState(() {
         _isLoading = false;

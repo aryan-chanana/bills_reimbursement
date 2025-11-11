@@ -1,11 +1,17 @@
+import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../models/bill_model.dart';
 import '../screens/add_bill_screen.dart';
+import '../services/ConnectivityService.dart';
 import '../services/api_service.dart';
+import '../services/offline_queue_service.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -15,6 +21,11 @@ class UserDashboard extends StatefulWidget {
 }
 
 class _UserDashboardState extends State<UserDashboard> {
+  Color kPrimaryBlue = Color(0xFF2196F3);
+  Color kPrimaryBlueDark = Color(0xFF1E3A8A);
+  Color kBgTop = Color(0xFFE3F2FD);
+  Color kBgBottom = Color(0xFFBBDEFB);
+
   int _employeeId = 0;
   String _userName = '';
   List<Bill> _bills = [];
@@ -27,14 +38,22 @@ class _UserDashboardState extends State<UserDashboard> {
   DateTime? _startDate;
   DateTime? _endDate;
 
-  final List<String> _reimbursementCategories = [
-    'All', 'Parking', 'Travel', 'Food', 'Office Supplies', 'Other'
-  ];
+  String _selectedStatus = 'All';
+  final List<String> _statusOptions = ['All', 'Pending', 'Approved', 'Rejected'];
+
+  final List<String> _reimbursementCategories = ['All', 'Parking', 'Travel', 'Food', 'Office Supplies', 'Other'];
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
+    Future.delayed(Duration(milliseconds: 100), () async {
+      final prefs = await SharedPreferences.getInstance();
+      final employeeId = prefs.getInt('employee_id')!.toString();
+      final password = prefs.getString('password')!;
+
+      await OfflineQueueService.trySubmitQueuedBills(int.parse(employeeId), password);
+    });
   }
 
   Future<void> _loadUserData() async {
@@ -57,21 +76,32 @@ class _UserDashboardState extends State<UserDashboard> {
         throw Exception("User credentials not found.");
       }
 
-      final bills = await ApiService.getMyBills(employeeId, password);
-      if (mounted) {
-        setState(() {
-          _bills = bills;
-        });
-        _calculateMonthlyTotal();
-        _applyFilters();
+      final bool backendAvailable = await ConnectivityService.isBackendAvailable();
+      if (!backendAvailable) {
+        _showErrorDialog("\nUnable to load bills.\nPlease try again later.");
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading bills: ${e.toString()}'), backgroundColor: Colors.red),
-        );
+      else {
+        final bills = await ApiService.getMyBills(employeeId, password);
+        if (mounted) {
+          setState(() {
+            _bills = bills;
+          });
+          _calculateMonthlyTotal();
+          _applyFilters();
+        }
       }
-    } finally {
+    }
+    catch (e) {
+      print("LOAD BILLS ERROR = $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+      }
+      // print(stack);
+      // if (mounted) {
+      //   _showErrorDialog("\nUnable to load bills.\nPlease try again later.");
+      // }
+    }
+    finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
@@ -85,131 +115,290 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   void _applyFilters() {
-    List<Bill> filtered = List.from(_bills);
+    if (_startDate == null || _endDate == null) {
+      _initDefaultMonthRange();
+    }
+
+    List<Bill> filtered = _bills.where((b) {
+      final inRange = !b.date.isBefore(_startDate!) && !b.date.isAfter(_endDate!);
+      return inRange;
+    }).toList();
+
     if (_selectedFilter != 'All') {
-      filtered = filtered.where((bill) => bill.reimbursementFor == _selectedFilter).toList();
+      filtered = filtered.where((b) => b.reimbursementFor == _selectedFilter).toList();
     }
-    if (_startDate != null && _endDate != null) {
-      filtered = filtered.where((bill) => !bill.date.isBefore(_startDate!) && !bill.date.isAfter(_endDate!)).toList();
+
+    if (_selectedStatus != 'All') {
+      filtered = filtered.where(
+            (b) => b.status.toLowerCase() == _selectedStatus.toLowerCase(),
+      ).toList();
     }
+
     setState(() => _filteredBills = filtered);
+  }
+
+  Widget _glassCard({required Widget child, EdgeInsetsGeometry padding = const EdgeInsets.all(16)}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.7)),
+            boxShadow: [BoxShadow(color: Colors.black12.withOpacity(0.06), blurRadius: 18, offset: const Offset(0, 10))],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _statusPill(String status) {
+    Color c;
+    switch (status.toLowerCase()) {
+      case 'approved': c = Colors.green; break;
+      case 'rejected': c = Colors.red; break;
+      default: c = Colors.orange;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+      decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(30)),
+      alignment: Alignment.center,
+      child: Text(status.toUpperCase(),
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
-          title: Text('Hello, $_userName'),
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-          actions: [
-            IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBills),
-            IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
-          ],
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        title: Text('${_userName.toUpperCase()}, $_employeeId', overflow: TextOverflow.ellipsis),
+        actions: [
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBills),
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+        ],
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [kPrimaryBlue, kPrimaryBlueDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+          ),
         ),
-        body: Column(
-          children: [
-            // Summary Card & Filters... (no changes)
-            Container(
-              margin: const EdgeInsets.all(16),
-              child: Card(
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [kBgTop, kBgBottom],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              // Monthly total (glass)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: _glassCard(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('This Month\'s Total', style: TextStyle(fontSize: 16, color: Colors.grey)),
-                          Text('₹${_monthlyTotal.toStringAsFixed(2)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.blue)),
-                        ],
-                      ),
-                      const Icon(Icons.account_balance_wallet, size: 40, color: Colors.blue),
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text("This Month's Total", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                        const SizedBox(height: 6),
+                        Text('₹${_monthlyTotal.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kPrimaryBlue)),
+                      ]),
+                      Icon(Icons.account_balance_wallet, size: 40, color: kPrimaryBlue),
                     ],
                   ),
                 ),
               ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedFilter,
-                      decoration: const InputDecoration(labelText: 'Category', border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8)),
-                      items: _reimbursementCategories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                      onChanged: (value) {
-                        if (value != null) setState(() => _selectedFilter = value);
-                        _applyFilters();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(icon: const Icon(Icons.date_range), onPressed: _selectDateRange),
-                ],
-              ),
-            ),
 
-            // Bills List (CHANGED)
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _filteredBills.isEmpty
-                  ? const Center(child: Text('No bills found.'))
-                  : ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _filteredBills.length,
-                itemBuilder: (context, index) {
-                  final bill = _filteredBills[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      leading: CircleAvatar(backgroundColor: _getStatusColor(bill.status), child: const Text('₹', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                      title: Text(bill.reimbursementFor, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Amount: ₹${bill.amount.toStringAsFixed(2)}'),
-                          Text('Bill Date: ${DateFormat('dd/MM/yyyy').format(bill.date)}'),
-                          Text('Status: ${bill.status.toUpperCase()}', style: TextStyle(color: _getStatusColor(bill.status), fontWeight: FontWeight.bold)),
-                          Text('Submission Date: ${bill.createdAt}'),
-                        ],
+              // Filters (glass)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: _glassCard(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedFilter,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Category',
+                            filled: true, fillColor: Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                          items: _reimbursementCategories
+                              .map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)))
+                              .toList(),
+                          onChanged: (v) { if (v!=null) setState(()=>_selectedFilter=v); _applyFilters(); },
+                        ),
                       ),
-
-                      trailing: bill.status.toLowerCase() == 'pending'
-                          ? PopupMenuButton<String>(
-                        onSelected: (value) {
-                          if (value == 'edit') {
-                            _showEditBillDialog(bill);
-                          } else if (value == 'delete') {
-                            _showDeleteConfirmationDialog(bill);
-                          }
-                        },
-                        itemBuilder: (context) => [
-                          const PopupMenuItem(value: 'edit', child: Text('Edit')),
-                          const PopupMenuItem(value: 'delete', child: Text('Delete')),
-                        ],
-                      )
-                          : IconButton(icon: const Icon(Icons.image), onPressed: () => _viewBillImage(bill)),
-                    ),
-                  );
-                },
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _selectedStatus,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Status',
+                            filled: true, fillColor: Colors.white,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            isDense: true, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          ),
+                          items: _statusOptions
+                              .map((s) => DropdownMenuItem(value: s, child: Text(s, overflow: TextOverflow.ellipsis)))
+                              .toList(),
+                          onChanged: (v) { if (v!=null) setState(()=>_selectedStatus=v); _applyFilters(); },
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      SizedBox(
+                        height: 48,
+                        width: 48,
+                        child: ElevatedButton(
+                          onPressed: _openCustomDatePicker,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimaryBlue,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: EdgeInsets.zero,
+                            elevation: 0,
+                          ),
+                          child: const Icon(Icons.date_range, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+
+              // List
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _filteredBills.isEmpty
+                    ? const Center(child: Text('No bills found.'))
+                    : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  itemCount: _filteredBills.length,
+                  itemBuilder: (context, i) {
+                    final bill = _filteredBills[i];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _glassCard(
+                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(16),
+                          onTap: () {
+                            final s = bill.status.toLowerCase();
+                            if (s == 'approved') _viewBillImage(bill);
+                            else _showBillOptions(bill);
+                          },
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              // icon
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: _getStatusColor(bill.status).withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(Icons.receipt_long, color: _getStatusColor(bill.status)),
+                              ),
+                              const SizedBox(width: 12),
+
+                              // info
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      bill.reimbursementFor,
+                                      maxLines: 1, overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(children: [
+                                      const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(DateFormat('dd MMM yyyy').format(bill.date),
+                                            style: const TextStyle(fontSize: 13)),
+                                      ),
+                                    ]),
+                                    const SizedBox(height: 2),
+                                    Row(children: [
+                                      const Icon(Icons.currency_rupee, size: 14, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text('₹${bill.amount.toStringAsFixed(2)}',
+                                            style: const TextStyle(fontSize: 13)),
+                                      ),
+                                    ]),
+                                    const SizedBox(height: 2),
+                                    Row(
+                                      children: [
+                                      const Icon(Icons.access_time, size: 14, color: Colors.grey),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text('Submission: ${DateFormat('dd MMM yyyy').format(bill.createdAt!)}',
+                                            style: const TextStyle(fontSize: 13)),
+                                      ),
+                                    ]),
+                                    if (bill.status.toLowerCase() == 'rejected' && bill.remarks != null) ...[
+                                      const SizedBox(height: 4),
+                                      Row(children: [
+                                        const Icon(Icons.comment, size: 14, color: Colors.redAccent),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: Text('Remarks: ${bill.remarks}',
+                                              style: const TextStyle(fontSize: 13, color: Colors.redAccent, fontStyle: FontStyle.italic),
+                                              overflow: TextOverflow.ellipsis),
+                                        ),
+                                      ]),
+                                    ],
+                                  ],
+                                ),
+                              ),
+
+                              const SizedBox(width: 8),
+
+                              // centered status pill
+                              _statusPill(bill.status),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
         ),
+      ),
+
       floatingActionButton: FloatingActionButton(
+        backgroundColor: kPrimaryBlueDark,
+        foregroundColor: Colors.white,
         onPressed: () async {
-          final result = await Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => AddBillScreen(employeeId: _employeeId)),
-          );
-          if (result == true) {
-            _loadBills();
-          }
+          final result = await Navigator.push(context, MaterialPageRoute(builder: (_) => AddBillScreen(employeeId: _employeeId)));
+          if (result == true) _loadBills();
         },
         child: const Icon(Icons.add),
       ),
@@ -218,92 +407,297 @@ class _UserDashboardState extends State<UserDashboard> {
 
   void _showEditBillDialog(Bill bill) {
     final formKey = GlobalKey<FormState>();
-    final amountController = TextEditingController(text: bill.amount.toString());
+    final amountController = TextEditingController(
+        text: bill.amount.toStringAsFixed(2));
     String selectedCategory = bill.reimbursementFor;
     DateTime selectedDate = bill.date;
 
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Edit Bill'),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: selectedCategory,
-                    items: _reimbursementCategories.where((c) => c != 'All').map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                    onChanged: (value) => selectedCategory = value!,
-                    decoration: const InputDecoration(labelText: 'Category'),
+        XFile? newImageFile;
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            Widget imagePreviewWidget() {
+              if (newImageFile != null) {
+                // ✅ Local new image (picked)
+                return InteractiveViewer(
+                  panEnabled: true,
+                  minScale: 1,
+                  maxScale: 4,
+                  child: Image.file(
+                    File(newImageFile!.path),
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
                   ),
-                  TextFormField(
-                    controller: amountController,
-                    decoration: const InputDecoration(labelText: 'Amount (₹)'),
-                    keyboardType: TextInputType.number,
-                    validator: (v) => v == null || v.isEmpty || double.tryParse(v) == null ? 'Invalid amount' : null,
-                  ),
-                  InkWell(
-                    onTap: () async {
-                      final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2020), lastDate: DateTime.now());
-                      if (picked != null) {
-                        // This requires a StatefulWidget for the dialog, so we'll skip state update for simplicity
-                        selectedDate = picked;
-                      }
-                    },
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'Date'),
-                      child: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
+                );
+              } else if (bill.billImagePath.isNotEmpty) {
+                // ✅ Server image with auth
+                final url = '${ApiService.baseUrl.replaceAll(
+                    "/api", "")}/files/${bill.billImagePath}';
+                return FutureBuilder<Uint8List?>(
+                  future: _fetchImageWithAuth(url),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const SizedBox(
+                        height: 200,
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    } else if (snapshot.hasError || !snapshot.hasData) {
+                      return const Text('Could not load image');
+                    } else {
+                      return InteractiveViewer(
+                        panEnabled: true,
+                        minScale: 1,
+                        maxScale: 4,
+                        child: Image.memory(
+                          snapshot.data!,
+                          height: 200,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                        ),
+                      );
+                    }
+                  },
+                );
+              } else {
+                return const Text('No image selected');
+              }
+            }
+
+            return Dialog(
+              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(24),
+                      color: Colors.white.withOpacity(0.90),
+                      border: Border.all(color: Colors.white.withOpacity(0.7)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.08),
+                          blurRadius: 18,
+                          offset: const Offset(0, 12),
+                        ),
+                      ],
                     ),
-                  )
-                ],
+                    padding: const EdgeInsets.all(18),
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+
+                          // ✅ HEADER
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              gradient: LinearGradient(
+                                colors: [kPrimaryBlue, kPrimaryBlueDark],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: const Text(
+                              "Edit Bill",
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          // ✅ CATEGORY DROPDOWN (glass)
+                          DropdownButtonFormField<String>(
+                            value: selectedCategory,
+                            decoration: InputDecoration(
+                              labelText: "Category",
+                              prefixIcon: Icon(Icons.category_rounded, color: kPrimaryBlueDark),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            items: _reimbursementCategories
+                                .where((c) => c != "All")
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (v) => setStateDialog(() => selectedCategory = v!),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ✅ AMOUNT TEXTFIELD
+                          TextFormField(
+                            controller: amountController,
+                            decoration: InputDecoration(
+                              labelText: "Amount (₹)",
+                              prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            keyboardType: TextInputType.number,
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          // ✅ DATE PICKER
+                          GestureDetector(
+                            onTap: () async {
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime.now(),
+                              );
+                              if (picked != null) {
+                                setStateDialog(() => selectedDate = picked);
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: "Date",
+                                prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlueDark),
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // ✅ IMAGE PREVIEW GLASS BOX
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(color: Colors.grey.shade300),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: imagePreviewWidget(),
+                            ),
+                          ),
+
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: IconButton(
+                              icon: Icon(Icons.image_rounded, size: 32, color: kPrimaryBlue),
+                              onPressed: () async {
+                                final picker = ImagePicker();
+                                final picked = await picker.pickImage(source: ImageSource.gallery);
+                                if (picked != null) {
+                                  setStateDialog(() => newImageFile = picked);
+                                }
+                              },
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          // ✅ BUTTONS (Blue + shaped)
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              TextButton(
+                                child: const Text(
+                                  "Cancel",
+                                  style: TextStyle(fontSize: 16),
+                                ),
+                                onPressed: () => Navigator.pop(context),
+                              ),
+
+                              const SizedBox(width: 12),
+
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: kPrimaryBlueDark,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                                ),
+                                onPressed: () async {
+                                  if (!formKey.currentState!.validate()) return;
+
+                                  final prefs = await SharedPreferences.getInstance();
+                                  final password = prefs.getString('password');
+
+                                  File? img = newImageFile != null ? File(newImageFile!.path) : null;
+
+                                  final success = await ApiService.editBill(
+                                    employeeId: _employeeId.toString(),
+                                    password: password!,
+                                    billId: bill.billId,
+                                    reimbursementFor: selectedCategory,
+                                    amount: double.parse(amountController.text),
+                                    date: selectedDate,
+                                    billImage: img,
+                                  );
+
+                                  Navigator.pop(context);
+                                  if (success) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text("Bill updated!")),
+                                    );
+                                    _loadBills();
+                                  }
+                                },
+                                child: Text(
+                                  "Save",
+                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  final prefs = await SharedPreferences.getInstance();
-                  final password = prefs.getString('password');
-                  if (password == null) return;
-
-                  final updatedBill = Bill(
-                    billId: bill.billId,
-                    reimbursementFor: selectedCategory,
-                    amount: double.parse(amountController.text),
-                    date: selectedDate,
-                    billImagePath: bill.billImagePath, // Image path doesn't change on edit
-                    status: bill.status,
-                    remarks: bill.remarks,
-                    employeeId: bill.employeeId,
-                  );
-
-                  final success = await ApiService.editBill(
-                    employeeId: _employeeId.toString(),
-                    password: password,
-                    billId: bill.billId,
-                    updatedBill: updatedBill,
-                  );
-
-                  Navigator.pop(context);
-                  if (success) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill updated!'), backgroundColor: Colors.green));
-                    _loadBills();
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update bill.'), backgroundColor: Colors.red));
-                  }
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
+            );
+          },
         );
       },
     );
+  }
+
+  Future<Uint8List?> _fetchImageWithAuth(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final employeeId = prefs.getInt('employee_id')?.toString() ?? '';
+    final password = prefs.getString('password') ?? '';
+
+    final response = await http.get(
+      Uri.parse(url),
+      headers: ApiService.getAuthHeaders(employeeId, password),
+    );
+
+    if (response.statusCode == 200) {
+      return response.bodyBytes;
+    } else {
+      debugPrint('Failed to load image: ${response.statusCode}');
+      return null;
+    }
   }
 
   void _showDeleteConfirmationDialog(Bill bill) {
@@ -335,10 +729,88 @@ class _UserDashboardState extends State<UserDashboard> {
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
+    );
+  }
+
+  void _showBillOptions(Bill bill) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.9),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+
+                  // ✅ REJECTED REMARK (Only if rejected)
+                  if (bill.status.toLowerCase() == 'rejected' && bill.remarks != null)
+                    Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline, color: Colors.redAccent, size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              bill.remarks!,
+                              style: const TextStyle(
+                                color: Colors.redAccent,
+                                fontSize: 14,
+                                fontStyle: FontStyle.italic,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // ✅ EDIT BILL
+                  ListTile(
+                    leading: Icon(Icons.edit_rounded, color: kPrimaryBlueDark),
+                    title: const Text("Edit Bill", style: TextStyle(fontSize: 16)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showEditBillDialog(bill);
+                    },
+                  ),
+
+                  // ✅ DELETE BILL
+                  ListTile(
+                    leading: const Icon(Icons.delete_rounded, color: Colors.red),
+                    title: const Text("Delete Bill", style: TextStyle(fontSize: 16)),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showDeleteConfirmationDialog(bill);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -350,33 +822,134 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  Future<void> _selectDateRange() async {
-    final DateTimeRange? picked = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime.now());
-    if (picked != null) {
-      setState(() {
-        _startDate = picked.start;
-        _endDate = picked.end;
-      });
-      _applyFilters();
-    }
+  void _initDefaultMonthRange() {
+    final now = DateTime.now();
+    _startDate = DateTime(now.year, now.month, 1);
+    _endDate   = DateTime(now.year, now.month + 1, 0);
+  }
+
+  void _openCustomDatePicker() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) {
+        DateTime? start;
+        DateTime? end;
+
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 60), // reduces padding
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // HEADER
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        Text("Select range", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                        TextButton(
+                          onPressed: () {
+                            if (start != null && end != null) {
+                              Navigator.pop(context);
+                              setState(() {
+                                _startDate = start!;
+                                _endDate = end!;
+                              });
+                              _applyFilters();
+                            }
+                          },
+                          child: Text("Save"),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // CALENDAR
+                    TableCalendar(
+                      focusedDay: start != null ? start!: DateTime.now(),
+                      firstDay: DateTime(2020),
+                      lastDay: DateTime.now(),
+                      rangeStartDay: start,
+                      rangeEndDay: end,
+                      onRangeSelected: (s, e, f) {
+                        setState(() {
+                          start = s;
+                          end = e;
+                        });
+                      },
+                      rangeSelectionMode: RangeSelectionMode.enforced,
+                      headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // FOOTER BUTTONS
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        TextButton.icon(
+                          icon: Icon(Icons.clear),
+                          label: Text("Clear"),
+                          onPressed: () {
+                            setState(() {
+                              start = null;
+                              end = null;
+                              _startDate = null;
+                              _endDate = null;
+                            });
+                            Navigator.pop(context);
+                            _applyFilters();
+                          },
+                        ),
+                        ElevatedButton.icon(
+                          icon: Icon(Icons.date_range),
+                          label: Text("Show All"),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            setState(() {
+                              _startDate = DateTime(2020);
+                              _endDate = DateTime.now();
+                            });
+                            _applyFilters();
+                          },
+                        )
+                      ],
+                    )
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   void _viewBillImage(Bill bill) async {
     final prefs = await SharedPreferences.getInstance();
-    final adminId = prefs.getInt('employee_id')?.toString() ?? '';
-    final adminPassword = prefs.getString('password') ?? '';
+    final userId = prefs.getInt('employee_id')?.toString() ?? '';
+    final password = prefs.getString('password') ?? '';
 
-    final imageUrl = '${ApiService.baseUrl.replaceAll("/api", "")}/files/${bill.billImagePath}';
+    final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
 
-    Uint8List? cachedBytes = _imageCache[imageUrl];
-    Uint8List bytes;
+    Uint8List? bytes;
 
-    if (cachedBytes != null) {
-      bytes = cachedBytes;
+    // ✅ Try cache first
+    if (_imageCache.containsKey(imageUrl)) {
+      bytes = _imageCache[imageUrl]!;
     } else {
       final response = await http.get(
         Uri.parse(imageUrl),
-        headers: ApiService.getAuthHeaders(adminId, adminPassword),
+        headers: ApiService.getAuthHeaders(userId, password),
       );
 
       if (response.statusCode != 200) {
@@ -385,7 +958,12 @@ class _UserDashboardState extends State<UserDashboard> {
           builder: (_) => AlertDialog(
             title: const Text('Error'),
             content: const Text('Could not load image.'),
-            actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              )
+            ],
           ),
         );
         return;
@@ -395,24 +973,113 @@ class _UserDashboardState extends State<UserDashboard> {
       _imageCache[imageUrl] = bytes;
     }
 
-    showDialog(
+    // ✅ MODERN VIEWER
+    showGeneralDialog(
       context: context,
-      builder: (context) => Dialog(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppBar(
-              title: const Text('Bill Image'),
-              actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))],
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Image.memory(bytes, fit: BoxFit.contain),
+      barrierDismissible: true,
+      barrierColor: Colors.black87,
+      transitionDuration: const Duration(milliseconds: 200),
+      barrierLabel: 'Close',
+      pageBuilder: (_, __, ___) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.92,
+                height: MediaQuery.of(context).size.height * 0.80,
+                color: Colors.white,
+                child: Column(
+                  children: [
+                    // ✅ Top Bar
+                    Container(
+                      height: 56,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [kPrimaryBlue, kPrimaryBlueDark],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          const Expanded(
+                            child: Center(
+                              child: Text(
+                                "Bill Image",
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white
+                                ),
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const Divider(height: 1),
+
+                    Expanded(
+                      child: Container(
+                        color: Colors.black,
+                        child: InteractiveViewer(
+                          panEnabled: true,
+                          minScale: 1,
+                          maxScale: 4,
+                          child: Center(
+                            child: Image.memory(
+                              bytes!,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+        );
+      },
+
+      // ✅ Fade + Scale Animation
+      transitionBuilder: (_, anim, __, child) {
+        return FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.95, end: 1.0).animate(anim),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Connection Error"),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("OK"),
+          ),
+        ],
       ),
     );
   }

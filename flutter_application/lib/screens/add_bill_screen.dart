@@ -1,10 +1,14 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/ConnectivityService.dart';
 import '../services/api_service.dart';
 import '../services/ocr_service.dart';
+import '../services/offline_queue_service.dart';
 
 class AddBillScreen extends StatefulWidget {
   final int employeeId;
@@ -18,6 +22,11 @@ class AddBillScreen extends StatefulWidget {
 class _AddBillScreenState extends State<AddBillScreen> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
+
+  Color kPrimaryBlue = Color(0xFF2196F3);
+  Color kPrimaryBlueDark = Color(0xFF1E3A8A);
+  Color kBgTop = Color(0xFFE3F2FD);
+  Color kBgBottom = Color(0xFFBBDEFB);
 
   String _selectedCategory = 'Travel';
   DateTime _selectedDate = DateTime.now();
@@ -37,118 +46,243 @@ class _AddBillScreenState extends State<AddBillScreen> {
     }
   }
 
+  Widget glassCard({required Widget child, EdgeInsets padding = const EdgeInsets.all(16)}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.88),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withOpacity(0.7)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black12.withOpacity(0.08),
+                blurRadius: 18,
+                offset: Offset(0, 10),
+              )
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        title: const Text('Add New Bill'),
-        backgroundColor: Colors.blue,
+        elevation: 0,
+        backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
-      ),
-      body: Stack(
-        children: [
-          SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _selectedCategory,
-                    decoration: const InputDecoration(
-                      labelText: 'Reimbursement For',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.category),
-                    ),
-                    items: _reimbursementCategories.map((category) {
-                      return DropdownMenuItem(value: category, child: Text(category));
-                    }).toList(),
-                    onChanged: (value) {
-                      if (value != null) setState(() => _selectedCategory = value);
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _amountController,
-                    decoration: const InputDecoration(labelText: 'Amount (₹)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.currency_rupee)),
-                    keyboardType: TextInputType.number,
-                    validator: (value) {
-                      if (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0) {
-                        return 'Please enter a valid amount';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  InkWell(
-                    onTap: _selectDate,
-                    child: InputDecorator(
-                      decoration: const InputDecoration(labelText: 'Date', border: OutlineInputBorder(), prefixIcon: Icon(Icons.calendar_today)),
-                      child: Text(DateFormat('dd/MM/yyyy').format(_selectedDate), style: const TextStyle(fontSize: 16)),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                    child: Column(
-                      children: [
-                        const Text('Bill Image', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 16),
-                        if (_imageFile != null)
-                          Container(
-                            height: 200,
-                            width: double.infinity,
-                            decoration: BoxDecoration(border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                            child: ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.file(_imageFile!, fit: BoxFit.cover)),
-                          )
-                        else
-                          Container(
-                            height: 200,
-                            width: double.infinity,
-                            decoration: BoxDecoration(color: Colors.grey[200], border: Border.all(color: Colors.grey), borderRadius: BorderRadius.circular(8)),
-                            child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.image, size: 64, color: Colors.grey), Text('No image selected', style: TextStyle(color: Colors.grey))]),
-                          ),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(child: OutlinedButton.icon(onPressed: () => _pickAndProcessImage(ImageSource.gallery), icon: const Icon(Icons.photo_library), label: const Text('Gallery'))),
-                            const SizedBox(width: 8),
-                            Expanded(child: OutlinedButton.icon(onPressed: () => _pickAndProcessImage(ImageSource.camera), icon: const Icon(Icons.camera_alt), label: const Text('Camera'))),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 32),
-                  SizedBox(
-                    height: 50,
-                    child: ElevatedButton(
-                      onPressed: _isLoading ? null : _submitBill,
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                      child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Submit Bill', style: TextStyle(fontSize: 16)),
-                    ),
-                  ),
-                ],
-              ),
+        title: const Text("Add New Bill"),
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [kPrimaryBlue, kPrimaryBlueDark],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
           ),
-          if (_isAnalyzing)
-            Container(
-              color: Colors.black.withOpacity(0.5),
-              child: const Center(
+        ),
+      ),
+
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [kBgTop, kBgBottom],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Stack(
+          children: [
+
+            // ✅ MAIN CONTENT
+            SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 90, 16, 24),
+              child: Form(
+                key: _formKey,
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Analyzing bill...', style: TextStyle(color: Colors.white, fontSize: 16)),
+
+                    // ✅ Category + Amount + Date card (glass)
+                    glassCard(
+                      child: Column(
+                        children: [
+                          DropdownButtonFormField<String>(
+                            value: _selectedCategory,
+                            decoration: InputDecoration(
+                              labelText: 'Reimbursement For',
+                              prefixIcon: Icon(Icons.category_rounded, color: kPrimaryBlue),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            items: _reimbursementCategories
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (v) => setState(() => _selectedCategory = v!),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          TextFormField(
+                            controller: _amountController,
+                            decoration: InputDecoration(
+                              labelText: 'Amount (₹)',
+                              prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
+                              filled: true,
+                              fillColor: Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (value) =>
+                            (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0)
+                                ? 'Enter valid amount'
+                                : null,
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          InkWell(
+                            onTap: _selectDate,
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'Date',
+                                prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
+                                filled: true,
+                                fillColor: Colors.white,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: Text(
+                                DateFormat('dd/MM/yyyy').format(_selectedDate),
+                                style: TextStyle(fontSize: 16),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ✅ Image Upload Glass Card
+                    glassCard(
+                      child: Column(
+                        children: [
+
+                          Text("Bill Image",
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+
+                          const SizedBox(height: 16),
+
+                          // ✅ Preview box
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              height: 200,
+                              width: double.infinity,
+                              color: Colors.grey.shade300,
+                              child: _imageFile != null
+                                  ? Image.file(_imageFile!, fit: BoxFit.cover)
+                                  : Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.image, size: 70, color: Colors.grey.shade600),
+                                  SizedBox(height: 6),
+                                  Text("No image selected", style: TextStyle(color: Colors.grey.shade700)),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 20),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _pickAndProcessImage(ImageSource.gallery),
+                                  icon: Icon(Icons.photo, color: Colors.white),
+                                  label: Text("Gallery", style: TextStyle(color: Colors.white)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kPrimaryBlue,
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _pickAndProcessImage(ImageSource.camera),
+                                  icon: Icon(Icons.camera_alt, color: Colors.white),
+                                  label: Text("Camera", style: TextStyle(color: Colors.white)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kPrimaryBlue,
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
+
+                    // ✅ Submit button (Modern Blue)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 55,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _submitBill,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimaryBlueDark,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        ),
+                        child: _isLoading
+                            ? CircularProgressIndicator(color: Colors.white)
+                            : Text("Submit Bill",
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
-        ],
+
+            // ✅ OCR overlay (unchanged)
+            if (_isAnalyzing)
+              Container(
+                color: Colors.black54,
+                child: const Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      CircularProgressIndicator(color: Colors.white),
+                      SizedBox(height: 16),
+                      Text("Analyzing bill...", style: TextStyle(color: Colors.white, fontSize: 16)),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -199,7 +333,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_imageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a bill image'), backgroundColor: Colors.red));
+      _showErrorDialog("Please select a bill image");
       return;
     }
 
@@ -208,34 +342,81 @@ class _AddBillScreenState extends State<AddBillScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final password = prefs.getString('password');
-      if (password == null) {
-        throw Exception("User credentials not found.");
-      }
+      if (password == null) return;
 
-      final success = await ApiService.addBill(
-        employeeId: widget.employeeId,
-        password: password,
-        reimbursementFor: _selectedCategory,
-        amount: double.parse(_amountController.text),
-        date: _selectedDate,
-        billImage: _imageFile!,
-      );
+      final employeeId = widget.employeeId.toInt();
 
-      if (success && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill submitted successfully!'), backgroundColor: Colors.green));
-        Navigator.pop(context, true); // Pop and signal a refresh
-      } else {
-        throw Exception("Failed to submit bill.");
+      final bool backendAvailable = await ConnectivityService.isBackendAvailable();
+      if (!backendAvailable) {
+        _showErrorDialog("Unable to connect to server. Bill saved locally and will auto-upload when connected.");
+        setState(() => _isLoading = false);
+
+        await OfflineQueueService.queueBill(
+          category: _selectedCategory,
+          amount: double.parse(_amountController.text),
+          date: _selectedDate,
+          image: _imageFile!,
+        );
+
+        return;
       }
-    } catch (e) {
+      else {
+        final success = await ApiService.addBill(
+          employeeId: employeeId,
+          password: password,
+          reimbursementFor: _selectedCategory,
+          amount: double.parse(_amountController.text),
+          date: _selectedDate,
+          billImage: _imageFile!,
+        );
+
+        if (success && mounted) {
+          Navigator.pop(context, true);
+        } else {
+          _showErrorDialog("Server unreachable, bill saved offline.");
+
+          await OfflineQueueService.queueBill(
+            category: _selectedCategory,
+            amount: double.parse(_amountController.text),
+            date: _selectedDate,
+            image: _imageFile!,
+          );
+        }
+      }
+    }
+    catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
       }
-    } finally {
+    }
+    finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _showErrorDialog(String msg) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Error"),
+        content: Text(msg),
+        actions: [
+          TextButton(
+            child: const Text("OK"),
+            onPressed: () => Navigator.pop(context),
+          )
+        ],
+      ),
+    );
+  }
+
+  Future<void> saveBillOffline(Map<String, dynamic> billData) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String> queue = prefs.getStringList('offline_bills') ?? [];
+    queue.add(billData.toString());
+    await prefs.setStringList('offline_bills', queue);
   }
 
   @override
