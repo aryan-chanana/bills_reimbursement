@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Service
@@ -25,13 +27,15 @@ public class FileStorageService {
         }
     }
 
-    public String storeFile(MultipartFile file) {
+    public String storeFile(MultipartFile file, Integer employeeId) {
         String originalFileName = file.getOriginalFilename();
         String fileExtension = "";
         if (originalFileName != null && originalFileName.contains(".")) {
             fileExtension = originalFileName.substring(originalFileName.lastIndexOf("."));
         }
-        String uniqueFileName = UUID.randomUUID() + fileExtension;
+        String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"));
+        String shortUUID = UUID.randomUUID().toString().substring(0, 6);
+        String uniqueFileName = date + "_" + employeeId + "_" + shortUUID + fileExtension;
 
         try {
             Path targetLocation = this.fileStorageLocation.resolve(uniqueFileName);

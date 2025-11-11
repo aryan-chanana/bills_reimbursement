@@ -111,4 +111,9 @@ public class AdminController {
                 "status", bill.getStatus()
         ));
     }
+
+    @GetMapping("/ping")
+    public ResponseEntity<?> getServerStatus() {
+        return ResponseEntity.ok(Map.of("message", "Connected to backend service successfully"));
+    }
 }

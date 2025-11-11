@@ -54,6 +54,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
 
+                        // check server connection
+                        .requestMatchers(HttpMethod.GET, "/ping").permitAll()
+
                         // 👇 Fallback
                         .anyRequest().authenticated()
                 )

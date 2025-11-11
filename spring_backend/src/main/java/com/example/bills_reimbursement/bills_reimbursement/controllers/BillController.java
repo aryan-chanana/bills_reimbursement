@@ -71,15 +71,16 @@ public class BillController {
                     .body(Map.of("error", "User to associate bill with not found"));
         }
 
-        String fileName = fileStorageService.storeFile(billImage);
+        String fileName = fileStorageService.storeFile(billImage, employeeId);
 
         Bill newBill = new Bill();
         newBill.setReimbursementFor(reimbursementFor);
         newBill.setAmount(amount);
         newBill.setDate(date);
-        newBill.setStatus("pending");
+        newBill.setStatus("Pending");
         newBill.setUser(targetUser.get());
         newBill.setBillImagePath(fileName);
+        newBill.setCreatedAt(LocalDate.now());
         Bill savedBill = billRepository.save(newBill);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("message", "Bill added successfully", "id", savedBill.getBillId()));
@@ -104,7 +105,10 @@ public class BillController {
     }
 
     @PutMapping("/{billId}")
-    public ResponseEntity<?> editBill(@RequestBody Bill updatedBillDetails,
+    public ResponseEntity<?> editBill(@RequestParam("reimbursementFor") String reimbursementFor,
+                                      @RequestParam("amount") Double amount,
+                                      @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                      @RequestParam(value = "billImage", required = false) MultipartFile billImage,
                                       @PathVariable("employeeId") Integer employeeId,
                                       @PathVariable("billId") Integer billId, Authentication authentication) {
 
@@ -128,11 +132,14 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot edit an approved bill."));
         }
 
-        existingBill.setReimbursementFor(updatedBillDetails.getReimbursementFor());
-        existingBill.setAmount(updatedBillDetails.getAmount());
-        existingBill.setDate(updatedBillDetails.getDate());
-        existingBill.setBillImagePath(updatedBillDetails.getBillImagePath());
-        existingBill.setStatus(updatedBillDetails.getStatus());
+
+        existingBill.setReimbursementFor(reimbursementFor);
+        existingBill.setAmount(amount);
+        existingBill.setDate(date);
+        if (billImage != null && !billImage.isEmpty()) {
+            String fileName = fileStorageService.storeFile(billImage, employeeId);
+            existingBill.setBillImagePath(fileName);
+        }
 
         billRepository.save(existingBill);
         return ResponseEntity.ok(existingBill);
