@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/ConnectivityService.dart';
+import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
 import '../services/ocr_service.dart';
 import '../services/offline_queue_service.dart';

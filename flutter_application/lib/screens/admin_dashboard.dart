@@ -5,7 +5,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../models/bill_model.dart';
 import '../models/user_model.dart';
-import '../services/ConnectivityService.dart';
+import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
 import '../services/excel_service.dart';
 

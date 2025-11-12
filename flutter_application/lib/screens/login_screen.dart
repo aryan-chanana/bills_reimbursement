@@ -2,7 +2,7 @@ import 'package:bills_reimbursement/services/api_service.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
-import '../services/ConnectivityService.dart';
+import '../services/connectivity_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

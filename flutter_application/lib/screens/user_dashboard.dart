@@ -9,7 +9,7 @@ import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../models/bill_model.dart';
 import '../screens/add_bill_screen.dart';
-import '../services/ConnectivityService.dart';
+import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
 import '../services/offline_queue_service.dart';
 
