@@ -110,8 +110,10 @@ class _UserDashboardState extends State<UserDashboard> {
   void _calculateMonthlyTotal() {
     final now = DateTime.now();
     double total = 0.0;
-    _bills.where((b) => b.date.year == now.year && b.date.month == now.month)
-        .forEach((b) => total += b.amount);
+    _bills.where((b) =>
+    b.createdAt!.year == now.year &&
+        b.createdAt!.month == now.month
+    ).forEach((b) => total += b.amount);
     setState(() => _monthlyTotal = total);
   }
 
@@ -121,9 +123,12 @@ class _UserDashboardState extends State<UserDashboard> {
     }
 
     List<Bill> filtered = _bills.where((b) {
-      final inRange = !b.date.isBefore(_startDate!) && !b.date.isAfter(_endDate!);
+      final submittedAt = b.createdAt!;
+      final inRange = !submittedAt.isBefore(_startDate!) &&
+          !submittedAt.isAfter(_endDate!);
       return inRange;
     }).toList();
+
 
     if (_selectedFilter != 'All') {
       filtered = filtered.where((b) => b.reimbursementFor == _selectedFilter).toList();

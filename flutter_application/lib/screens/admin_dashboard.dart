@@ -112,7 +112,9 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
 
     List<Bill> filtered = _bills.where((b) {
-      final inRange = !b.date.isBefore(_startDate!) && !b.date.isAfter(_endDate!);
+      final submittedAt = b.createdAt!;
+      final inRange = !submittedAt.isBefore(_startDate!) &&
+          !submittedAt.isAfter(_endDate!);
       return inRange;
     }).toList();
 
