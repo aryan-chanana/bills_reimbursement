@@ -1,7 +1,8 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:permission_handler/permission_handler.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,7 +40,7 @@ class _UserDashboardState extends State<UserDashboard> {
   DateTime? _endDate;
 
   String _selectedStatus = 'All';
-  final List<String> _statusOptions = ['All', 'Pending', 'Approved', 'Rejected'];
+  final List<String> _statusOptions = ['All', 'Pending', 'Approved', 'Rejected', 'Paid'];
 
   final List<String> _reimbursementCategories = ['All', 'Parking', 'Travel', 'Food', 'Office Supplies', 'Other'];
 
@@ -161,6 +162,7 @@ class _UserDashboardState extends State<UserDashboard> {
     switch (status.toLowerCase()) {
       case 'approved': c = Colors.green; break;
       case 'rejected': c = Colors.red; break;
+      case 'paid': c = Colors.blue; break;
       default: c = Colors.orange;
     }
     return Container(
@@ -305,7 +307,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           borderRadius: BorderRadius.circular(16),
                           onTap: () {
                             final s = bill.status.toLowerCase();
-                            if (s == 'approved') _viewBillImage(bill);
+                            if (s == 'approved' || s == 'paid') _viewBillImage(bill);
                             else _showBillOptions(bill);
                           },
                           child: Row(
@@ -601,12 +603,12 @@ class _UserDashboardState extends State<UserDashboard> {
                             alignment: Alignment.centerRight,
                             child: IconButton(
                               icon: Icon(Icons.image_rounded, size: 32, color: kPrimaryBlue),
-                              onPressed: () async {
-                                final picker = ImagePicker();
-                                final picked = await picker.pickImage(source: ImageSource.gallery);
-                                if (picked != null) {
-                                  setStateDialog(() => newImageFile = picked);
-                                }
+                              onPressed: () {
+                                _pickBillImage(
+                                  onPicked: (file) {
+                                    setStateDialog(() => newImageFile = file);
+                                  },
+                                );
                               },
                             ),
                           ),
@@ -677,6 +679,106 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             );
           },
+        );
+      },
+    );
+  }
+
+  Future<void> _pickBillImage({required void Function(XFile file) onPicked}) async {
+    final picker = ImagePicker();
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt_rounded),
+                title: const Text('Camera'),
+                onTap: () async {
+                  Navigator.pop(context);
+
+                  try {
+                    final image = await picker.pickImage(
+                      source: ImageSource.camera,
+                      imageQuality: 85,
+                    );
+                    if (image != null) onPicked(image);
+                  } on PlatformException catch (e) {
+                    if (!context.mounted) return;
+
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Camera Permission Required'),
+                        content: const Text(
+                          'Camera access is required to capture bill images. '
+                              'Please enable it from app settings.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              openAppSettings();
+                            },
+                            child: const Text('Open Settings'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const Text('Gallery'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  try {
+                    final image = await picker.pickImage(
+                      source: ImageSource.gallery,
+                      imageQuality: 85,
+                    );
+                    if (image != null) onPicked(image);
+                  } on PlatformException catch (e) {
+                    if (!context.mounted) return;
+
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Gallery Permission Required'),
+                        content: const Text(
+                          'Gallery access is required to select bill images. '
+                              'Please enable it from app settings.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              openAppSettings();
+                            },
+                            child: const Text('Open Settings'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
         );
       },
     );
@@ -818,6 +920,7 @@ class _UserDashboardState extends State<UserDashboard> {
     switch (status.toLowerCase()) {
       case 'approved': return Colors.green;
       case 'rejected': return Colors.red;
+      case 'paid': return Colors.blue;
       default: return Colors.orange;
     }
   }

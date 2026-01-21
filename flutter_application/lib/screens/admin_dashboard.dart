@@ -43,7 +43,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   final List<String> _reimbursementCategories = [
     'Parking', 'Travel', 'Food', 'Office Supplies', 'Other'
   ];
-  final List<String> _statusOptions = ['pending', 'approved', 'rejected'];
+  final List<String> _statusOptions = ['pending', 'approved', 'rejected', 'paid'];
 
   @override
   void initState() {
@@ -524,7 +524,7 @@ class _AdminDashboardState extends State<AdminDashboard>
 
                   const SizedBox(height: 14),
 
-                  if (bill.status.toLowerCase() == 'pending')
+                  if (bill.status.toLowerCase() == 'pending') ... [
                     Row(
                       children: [
                         Expanded(
@@ -550,7 +550,23 @@ class _AdminDashboardState extends State<AdminDashboard>
                         ),
                       ],
                     ),
-
+                  ]
+                  else if (bill.status.toLowerCase() == 'approved') ...[
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _confirmMarkAsPaid(bill),
+                        icon: const Icon(Icons.payments),
+                        label: const Text("Mark as Paid"),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
+                    )
+                  ],
                   const SizedBox(height: 8),
                 ],
               ),
@@ -719,6 +735,8 @@ class _AdminDashboardState extends State<AdminDashboard>
         return Colors.green;
       case 'rejected':
         return Colors.red;
+      case 'paid':
+        return Colors.blue;
       default:
         return Colors.orange;
     }
@@ -863,6 +881,67 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
   }
 
+  Future<void> _onMarkAsPaidPressed(Bill bill) async {
+    final prefs = await SharedPreferences.getInstance();
+    final adminId = prefs.getInt('employee_id');
+    final adminPassword = prefs.getString('password');
+
+    if (adminId == null || adminPassword == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Admin credentials not found'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    final success = await ApiService.changeStatus(
+      employeeId: adminId,
+      password: adminPassword,
+      billId: bill.billId,
+      status: "PAID",
+    );
+
+    Navigator.pop(context);
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bill marked as paid'), backgroundColor: Colors.green),
+      );
+      _loadData();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to mark bill as paid'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _confirmMarkAsPaid(Bill bill) async {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Confirm Payment'),
+        content: const Text('Are you sure this bill has been paid?'),
+        actions: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center, // ✅ center buttons
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _onMarkAsPaidPressed(bill);
+                },
+                child: const Text('Yes'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _showRejectDialog(Bill bill) async {
     final remarkController = TextEditingController();
     showDialog(
@@ -905,6 +984,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                 remarks: remarks
               );
 
+              Navigator.pop(context);
               if (success) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill rejected'), backgroundColor: Colors.green));
                 _loadData();
