@@ -644,7 +644,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                                 ),
                                 onPressed: () async {
-                                  if (!formKey.currentState!.validate()) return;
 
                                   final prefs = await SharedPreferences.getInstance();
                                   final password = prefs.getString('password');

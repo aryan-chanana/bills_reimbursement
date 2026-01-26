@@ -49,6 +49,7 @@ class ExcelService {
         bill.amount,
         DateFormat('dd/MM/yyyy').format(bill.date),
         bill.status.toUpperCase(),
+        DateFormat('dd/MM/yyyy').format(bill.createdAt!),
       ];
       sheet.appendRow(rowData);
     }
@@ -68,7 +69,7 @@ class ExcelService {
     final fileBytes = excel.save();
 
     if (fileBytes != null) {
-      String fileName = 'Bills_Report_${DateFormat('ddMMyyyy_HHmmss').format(
+      String fileName = 'Bills_Report_${DateFormat('dd-MM-yyyy').format(
           DateTime.now())}';
       await FileSaver.instance.saveAs(
         name: fileName,
