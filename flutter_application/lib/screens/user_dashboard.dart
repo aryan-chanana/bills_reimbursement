@@ -427,7 +427,6 @@ class _UserDashboardState extends State<UserDashboard> {
           builder: (context, setStateDialog) {
             Widget imagePreviewWidget() {
               if (newImageFile != null) {
-                // ✅ Local new image (picked)
                 return InteractiveViewer(
                   panEnabled: true,
                   minScale: 1,
@@ -440,7 +439,6 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                 );
               } else if (bill.billImagePath.isNotEmpty) {
-                // ✅ Server image with auth
                 final url = '${ApiService.baseUrl.replaceAll(
                     "/api", "")}/files/${bill.billImagePath}';
                 return FutureBuilder<Uint8List?>(
@@ -644,7 +642,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                   padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
                                 ),
                                 onPressed: () async {
-                                  if (!formKey.currentState!.validate()) return;
 
                                   final prefs = await SharedPreferences.getInstance();
                                   final password = prefs.getString('password');

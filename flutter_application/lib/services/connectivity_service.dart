@@ -1,9 +1,14 @@
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import 'api_service.dart';
 
 class ConnectivityService {
   static Future<bool> hasInternet() async {
+    if (kIsWeb) {
+      return true;
+    }
+
     try {
       final result = await InternetAddress.lookup('google.com');
       return result.isNotEmpty;
