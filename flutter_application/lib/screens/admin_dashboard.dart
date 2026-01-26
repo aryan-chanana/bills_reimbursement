@@ -1,13 +1,17 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
 import '../models/bill_model.dart';
 import '../models/user_model.dart';
+import '../services/bill_download_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
 import '../services/excel_service.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -29,6 +33,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   List<Bill> _filteredBills = [];
   List<User> _employees = [];
   bool _isLoading = true;
+  // final GlobalKey _imageKey = GlobalKey();
 
   // Filters
   int? _selectedEmployeeId;
@@ -167,6 +172,7 @@ class _AdminDashboardState extends State<AdminDashboard>
         title: const Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.w600)),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
+          IconButton(icon: const Icon(Icons.picture_as_pdf), onPressed: _generateBillsPdf),
           IconButton(icon: const Icon(Icons.download), onPressed: _generateExcel),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
@@ -504,17 +510,19 @@ class _AdminDashboardState extends State<AdminDashboard>
                           // ---------- IMAGE ----------
                           ClipRRect(
                             borderRadius: BorderRadius.circular(12),
-                            child: InteractiveViewer(
-                              child: Image.network(
-                                imageUrl,
-                                headers: headers,
-                                height: 260,
-                                width: double.infinity,
-                                fit: BoxFit.contain,
-                                loadingBuilder: (context, child, progress) =>
-                                progress == null ? child : const SizedBox(
+                            child: RepaintBoundary(
+                              child: InteractiveViewer(
+                                child: Image.network(
+                                  imageUrl,
+                                  headers: headers,
                                   height: 260,
-                                  child: Center(child: CircularProgressIndicator()),
+                                  width: double.infinity,
+                                  fit: BoxFit.contain,
+                                  loadingBuilder: (context, child, progress) =>
+                                  progress == null ? child : const SizedBox(
+                                    height: 260,
+                                    child: Center(child: CircularProgressIndicator()),
+                                  ),
                                 ),
                               ),
                             ),
@@ -568,7 +576,23 @@ class _AdminDashboardState extends State<AdminDashboard>
                         ),
                       ),
                     )
-                  ],
+                  ]
+                  else if (bill.status.toLowerCase() == 'paid') ...[
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: () => {_downloadBillImage(bill), Navigator.pop(context)},
+                          icon: const Icon(Icons.download),
+                          label: const Text("Download Bill Image"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.black87,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ),
+                    ],
                   const SizedBox(height: 8),
                 ],
               ),
@@ -875,6 +899,7 @@ class _AdminDashboardState extends State<AdminDashboard>
       status: "APPROVED",
     );
 
+    Navigator.pop(context);
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill approved'), backgroundColor: Colors.green));
       _loadData();
@@ -962,40 +987,40 @@ class _AdminDashboardState extends State<AdminDashboard>
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () async {
-              final remarks = remarkController.text.trim();
-              if (remarks.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter remarks'), backgroundColor: Colors.orange));
-                return;
-              }
+              onPressed: () async {
+                final remarks = remarkController.text.trim();
+                if (remarks.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter remarks'), backgroundColor: Colors.orange));
+                  return;
+                }
 
-              Navigator.pop(context);
-              final prefs = await SharedPreferences.getInstance();
-              final adminId = prefs.getInt('employee_id');
-              final adminPassword = prefs.getString('password');
-              if (adminId == null || adminPassword == null) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin credentials not found'), backgroundColor: Colors.red));
-                return;
-              }
+                final prefs = await SharedPreferences.getInstance();
+                final adminId = prefs.getInt('employee_id');
+                final adminPassword = prefs.getString('password');
+                if (adminId == null || adminPassword == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Admin credentials not found'), backgroundColor: Colors.red));
+                  return;
+                }
 
-              final success = await ApiService.changeStatus(
-                employeeId: adminId,
-                password: adminPassword,
-                billId: bill.billId,
-                status: "REJECTED",
-                remarks: remarks
-              );
+                final success = await ApiService.changeStatus(
+                    employeeId: adminId,
+                    password: adminPassword,
+                    billId: bill.billId,
+                    status: "REJECTED",
+                    remarks: remarks
+                );
 
-              Navigator.pop(context);
-              if (success) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill rejected'), backgroundColor: Colors.green));
-                _loadData();
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to reject bill'), backgroundColor: Colors.red));
-              }
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Reject', style: TextStyle(color: Colors.white))
+                Navigator.pop(context);
+                if (success) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill rejected'), backgroundColor: Colors.green));
+                  _loadData();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to reject bill'), backgroundColor: Colors.red));
+                }
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Reject', style: TextStyle(color: Colors.white))
           ),
         ],
       ),
@@ -1016,6 +1041,110 @@ class _AdminDashboardState extends State<AdminDashboard>
         ],
       ),
     );
+  }
+
+  Future<void> _downloadBillImage(Bill bill) async {
+    try {
+      final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
+      final headers = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
+
+      final response = await http.get(Uri.parse(imageUrl), headers: headers);
+      if (response.statusCode != 200) throw Exception();
+
+      await BillDownloadService.downloadBytes(
+        response.bodyBytes,
+        'bill_${bill.billImagePath}',
+        'image/png',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Image downloaded')),
+      );
+    } catch (_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to download image'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _generateBillsPdf() async {
+    try {
+      if (_filteredBills.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No bills to export')),
+        );
+        return;
+      }
+
+      final pdf = pw.Document();
+      final headers = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
+
+      for (final bill in _filteredBills) {
+        final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
+
+        final response = await http.get(
+          Uri.parse(imageUrl),
+          headers: headers,
+        );
+
+        if (response.statusCode == 200) {
+          final image = pw.MemoryImage(response.bodyBytes);
+
+          pdf.addPage(
+            pw.Page(
+              pageFormat: PdfPageFormat.a4,
+              build: (context) {
+                return pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      'Bill ID: ${bill.billId}',
+                      style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text('Employee ID: ${bill.employeeId}'),
+                    pw.Text('Category: ${bill.reimbursementFor}'),
+                    pw.Text('Amount: Rs. ${bill.amount.toStringAsFixed(2)}'),
+                    pw.Text('Bill Date: ${DateFormat('dd MMM yyyy').format(bill.date)}'),
+                    pw.Text('Submission Date: ${DateFormat('dd MMM yyyy').format(bill.createdAt!)}'),
+                    pw.Text('Status: ${bill.status}'),
+                    pw.SizedBox(height: 12),
+                    pw.Center(
+                      child: pw.Image(
+                        image,
+                        fit: pw.BoxFit.contain,
+                        height: 500,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          );
+        }
+      }
+
+      final pdfBytes = await pdf.save();
+      final fileName =
+          'Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf';
+
+      await BillDownloadService.downloadBytes(
+        pdfBytes,
+        fileName,
+        'application/pdf',
+      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved to downloads'), backgroundColor: Colors.green));
+    }
+    catch (e) {
+      debugPrint('PDF ERROR: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to generate PDF'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
