@@ -15,6 +15,7 @@ import java.util.Optional;
 /*
     Controller for user-specific operations like retrieving and creating users.
 */
+@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping("/users")
 public class UserController {

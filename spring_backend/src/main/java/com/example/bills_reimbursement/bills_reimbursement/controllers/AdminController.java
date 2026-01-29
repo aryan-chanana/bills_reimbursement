@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 /*
     Controller for admin-specific operations like managing users and bills.
 */
+@CrossOrigin(origins = "*")
 @RestController
 public class AdminController {
 
@@ -87,18 +88,23 @@ public class AdminController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Bill not found"));
         }
 
-        Bill bill = billOpt.get();
-
-        if ("APPROVED".equalsIgnoreCase(bill.getStatus())) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Cannot change status of an already approved bill"));
-        }
-
         String newStatus = statusUpdate.get("status");
         String remarks = statusUpdate.get("remarks");
         if (newStatus == null || newStatus.isEmpty()) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "Status is required"));
+        }
+
+        Bill bill = billOpt.get();
+
+        if (bill.getStatus().equalsIgnoreCase("ARRPOVED") && !newStatus.equalsIgnoreCase("PAID")) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Cannot pay an unapproved bill"));
+        }
+
+        if ("PAID".equalsIgnoreCase(bill.getStatus())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "Cannot change status of an already paid bill"));
         }
 
         bill.setStatus(newStatus.toUpperCase());

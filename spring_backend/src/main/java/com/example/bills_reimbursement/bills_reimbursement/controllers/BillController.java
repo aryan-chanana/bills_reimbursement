@@ -17,10 +17,13 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /*
     Controller for bill-specific operations like adding, retrieving, updating, and deleting bills.
 */
+
+@CrossOrigin(origins = "*")
 @RestController
 @RequestMapping({"/users/{employeeId}/bills"})
 public class BillController {
@@ -128,7 +131,7 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
 
-        if ("APPROVED".equalsIgnoreCase(existingBill.getStatus())) {
+        if ("PAID".equalsIgnoreCase(existingBill.getStatus()) || "APPROVED".equalsIgnoreCase(existingBill.getStatus())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot edit an approved bill."));
         }
 
@@ -165,7 +168,9 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
 
-        if ("APPROVED".equalsIgnoreCase(bill.getStatus()) || "REJECTED".equalsIgnoreCase(bill.getStatus())) {
+        Set<String> NON_DELETABLE_STATUSES = Set.of("PAID", "APPROVED", "REJECTED");
+        String status = Optional.ofNullable(bill.getStatus()).map(String::toUpperCase).orElse("UNKNOWN");
+        if (NON_DELETABLE_STATUSES.contains(status)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot delete an approved bill."));
         }
 
