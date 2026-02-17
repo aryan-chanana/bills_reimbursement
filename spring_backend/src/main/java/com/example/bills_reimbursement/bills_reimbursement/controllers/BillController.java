@@ -139,6 +139,7 @@ public class BillController {
         existingBill.setReimbursementFor(reimbursementFor);
         existingBill.setAmount(amount);
         existingBill.setDate(date);
+        existingBill.setStatus("Pending");
         if (billImage != null && !billImage.isEmpty()) {
             String fileName = fileStorageService.storeFile(billImage, employeeId);
             existingBill.setBillImagePath(fileName);
