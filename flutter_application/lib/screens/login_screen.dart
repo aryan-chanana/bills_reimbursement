@@ -18,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _isSignUp = false;
+  bool _isAdmin = false;
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +158,41 @@ class _LoginScreenState extends State<LoginScreen> {
                           },
                         ),
 
+                      if (_isSignUp) const SizedBox(height: 16),
+
+                      if (_isSignUp)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Row(
+                                children: [
+                                  Icon(Icons.admin_panel_settings_outlined),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    "Register as Admin",
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                ],
+                              ),
+                              Switch(
+                                value: _isAdmin,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _isAdmin = value;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+
                       const SizedBox(height: 28),
 
                       // Submit Button
@@ -191,6 +227,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           setState(() {
                             _isSignUp = !_isSignUp;
                             _nameController.clear();
+                            _isAdmin = false;
                           });
                         },
                         child: Text(
@@ -230,19 +267,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final bool backendAvailable = await ConnectivityService.isBackendAvailable();
       if (!backendAvailable) {
-        _showErrorDialog("\nUnable to connect to server.\nPlease try again later.");
+        _showErrorDialog("Unable to connect to server.\nPlease try again later.");
+        return;
       }
       else {
         if (_isSignUp) {
-          bool success = await ApiService.signUp(employeeId, name, password);
+          bool success = await ApiService.signUp(employeeId, name, password, _isAdmin);
           if (success) {
-            final user = await ApiService.login(employeeId, password);
-            if (user != null) {
-              await _saveUserSession(user, password);
-              _navigateToUserDashboard();
-            } else {
-              _showErrorDialog('Sign-up succeeded but auto-login failed.');
-            }
+            _showSuccessDialog('Request sent to admin. You can login once admin approves.');
           } else {
             _showErrorDialog('Sign-up failed. Employee ID already exist.');
           }
@@ -252,6 +284,10 @@ class _LoginScreenState extends State<LoginScreen> {
           final user = await ApiService.login(employeeId, password);
           if (user == null) {
             _showErrorDialog('Invalid Employee ID or Password');
+            return;
+          }
+          if (!user.isApproved) {
+            _showErrorDialog('User yet to be approved by admin');
             return;
           }
 
@@ -308,10 +344,27 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Success'),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _employeeIdController.dispose();
     _nameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 }

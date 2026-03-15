@@ -3,12 +3,14 @@ class User {
   final String name;
   final String password;
   final bool isAdmin;
+  final bool isApproved;
 
   User({
     required this.employeeId,
     required this.name,
     required this.password,
     this.isAdmin = false,
+    this.isApproved = false
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -17,6 +19,7 @@ class User {
       name: json['name'],
       password: json['password'] ?? '',
       isAdmin: json['admin'] ?? false,
+      isApproved: json['approved'] ?? false,
     );
   }
 }

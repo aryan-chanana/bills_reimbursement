@@ -13,6 +13,7 @@ import '../screens/add_bill_screen.dart';
 import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
 import '../services/offline_queue_service.dart';
+import 'package:flutter/foundation.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -34,6 +35,7 @@ class _UserDashboardState extends State<UserDashboard> {
   bool _isLoading = true;
   double _monthlyTotal = 0.0;
   Map<String, Uint8List> _imageCache = {};
+  bool _isAdmin = false;
 
   String _selectedFilter = 'All';
   DateTime? _startDate;
@@ -52,6 +54,7 @@ class _UserDashboardState extends State<UserDashboard> {
       final prefs = await SharedPreferences.getInstance();
       final employeeId = prefs.getInt('employee_id')!.toString();
       final password = prefs.getString('password')!;
+      _isAdmin = prefs.getBool('is_admin') ?? false;
 
       await OfflineQueueService.trySubmitQueuedBills(int.parse(employeeId), password);
     });
@@ -191,6 +194,14 @@ class _UserDashboardState extends State<UserDashboard> {
         title: Text('${_userName.toUpperCase()}, $_employeeId', overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBills),
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings),
+              tooltip: "Admin Dashboard",
+              onPressed: () {
+                Navigator.pushReplacementNamed(context, '/admin_dashboard');
+              },
+            ),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
         flexibleSpace: Container(
@@ -432,7 +443,14 @@ class _UserDashboardState extends State<UserDashboard> {
                   panEnabled: true,
                   minScale: 1,
                   maxScale: 4,
-                  child: Image.file(
+                  child: kIsWeb
+                      ? Image.network(
+                    newImageFile!.path,
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.contain,
+                  )
+                      : Image.file(
                     File(newImageFile!.path),
                     height: 200,
                     width: double.infinity,
@@ -648,7 +666,6 @@ class _UserDashboardState extends State<UserDashboard> {
                                   final prefs = await SharedPreferences.getInstance();
                                   final password = prefs.getString('password');
 
-                                  File? img = newImageFile != null ? File(newImageFile!.path) : null;
 
                                   final success = await ApiService.editBill(
                                     employeeId: _employeeId.toString(),
@@ -657,7 +674,7 @@ class _UserDashboardState extends State<UserDashboard> {
                                     reimbursementFor: selectedCategory,
                                     amount: double.parse(amountController.text),
                                     date: selectedDate,
-                                    billImage: img,
+                                    billImage: newImageFile,
                                   );
 
                                   Navigator.pop(context);
@@ -690,6 +707,15 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Future<void> _pickBillImage({required void Function(XFile file) onPicked}) async {
     final picker = ImagePicker();
+
+    if (kIsWeb) {
+      final image = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 85,
+      );
+      if (image != null) onPicked(image);
+      return;
+    }
 
     showModalBottomSheet(
       context: context,

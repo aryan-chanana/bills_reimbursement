@@ -33,6 +33,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   List<Bill> _filteredBills = [];
   List<User> _employees = [];
   bool _isLoading = true;
+  List<User> _pendingUsers = [];
   // final GlobalKey _imageKey = GlobalKey();
 
   // Filters
@@ -41,6 +42,9 @@ class _AdminDashboardState extends State<AdminDashboard>
   String? _selectedStatus;
   DateTime? _startDate;
   DateTime? _endDate;
+
+  String _employeeSearch = "";
+  String _employeeSort = "id_asc";
 
   String? _adminId;
   String? _adminPassword;
@@ -88,7 +92,8 @@ class _AdminDashboardState extends State<AdminDashboard>
 
         if (mounted) {
           setState(() {
-            _employees = employees.where((user) => !user.isAdmin).toList();
+            _employees = employees.where((u) => u.isApproved).toList();
+            _pendingUsers = employees.where((u) => !u.isApproved).toList();
             _bills = bills;
             _filteredBills = bills;
           });
@@ -171,10 +176,65 @@ class _AdminDashboardState extends State<AdminDashboard>
         foregroundColor: Colors.white,
         title: const Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.w600)),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
-          IconButton(icon: const Icon(Icons.picture_as_pdf), onPressed: _generateBillsPdf),
-          IconButton(icon: const Icon(Icons.download), onPressed: _generateExcel),
-          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+
+          PopupMenuButton<String>(
+
+            onSelected: (value) {
+              if (value == "refresh") _loadData();
+              if (value == "pdf") _generateBillsPdf();
+              if (value == "excel") _generateExcel();
+              if (value == "user") {
+                Navigator.pushReplacementNamed(context, '/user_dashboard');
+              }
+              if (value == "logout") _logout();
+            },
+
+            itemBuilder: (context) => const [
+
+              PopupMenuItem(
+                value: "refresh",
+                child: ListTile(
+                  leading: Icon(Icons.refresh),
+                  title: Text("Refresh"),
+                ),
+              ),
+
+              PopupMenuItem(
+                value: "pdf",
+                child: ListTile(
+                  leading: Icon(Icons.picture_as_pdf),
+                  title: Text("Export PDF"),
+                ),
+              ),
+
+              PopupMenuItem(
+                value: "excel",
+                child: ListTile(
+                  leading: Icon(Icons.download),
+                  title: Text("Export Excel"),
+                ),
+              ),
+
+              PopupMenuItem(
+                value: "user",
+                child: ListTile(
+                  leading: Icon(Icons.person),
+                  title: Text("User Dashboard"),
+                ),
+              ),
+
+              PopupMenuItem(
+                value: "logout",
+                child: ListTile(
+                  leading: Icon(Icons.logout),
+                  title: Text("Logout"),
+                ),
+              ),
+
+            ],
+
+            icon: const Icon(Icons.more_vert),
+          )
         ],
         flexibleSpace: Container(
           decoration: BoxDecoration(
@@ -606,49 +666,140 @@ class _AdminDashboardState extends State<AdminDashboard>
   Widget _buildEmployeesTab() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
 
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      itemCount: _employees.length,
-      itemBuilder: (context, i) {
-        final employee = _employees[i];
-        final employeeBills = _bills.where((b) => b.employeeId == employee.employeeId).toList();
-        final totalAmount = employeeBills.fold(0.0, (sum, b) => sum + b.amount);
+    final employees = _getFilteredEmployees();
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _glassCard(
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(),
-              leading: CircleAvatar(
-                backgroundColor: Colors.greenAccent,
-                child: Text(employee.name.substring(0, 1).toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-              title: Text(employee.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('ID: ${employee.employeeId}'),
-                  Text('Total Bills: ${employeeBills.length}'),
-                  Text('Total Amount: ₹${totalAmount.toStringAsFixed(2)}'),
-                ],
-              ),
-              trailing: PopupMenuButton<String>(
-                onSelected: (value) {
-                  if (value == 'edit') {
-                    _showEditUserDialog(employee);
-                  } else if (value == 'delete') {
-                    _showDeleteConfirmationDialog(employee);
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Edit')),
-                  PopupMenuItem(value: 'delete', child: Text('Delete')),
-                ],
-              ),
+    return Stack(
+      children: [
+        ListView(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+          children: [
+            Row(
+              children: [
+
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: "Search employee",
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                    onChanged: (v) {
+                      setState(() {
+                        _employeeSearch = v;
+                      });
+                    },
+                  ),
+                ),
+
+                const SizedBox(width: 10),
+
+                DropdownButton<String>(
+                  value: _employeeSort,
+                  items: const [
+                    DropdownMenuItem(value: "id_asc", child: Text("ID ↑")),
+                    DropdownMenuItem(value: "id_desc", child: Text("ID ↓")),
+                    DropdownMenuItem(value: "name", child: Text("Name")),
+                  ],
+                  onChanged: (v) {
+                    setState(() {
+                      _employeeSort = v!;
+                    });
+                  },
+                ),
+              ],
             ),
+
+            const SizedBox(height: 12),
+
+            // ✅ USER REQUEST BUTTON
+            if (_pendingUsers.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.notifications_active),
+                  label: Text("User Requests (${_pendingUsers.length})"),
+                  onPressed: _showUserRequestsDialog,
+                ),
+              ),
+
+            // EMPLOYEE LIST
+            ...employees.map((employee) {
+
+              final employeeBills =
+              _bills.where((b) => b.employeeId == employee.employeeId).toList();
+
+              final totalAmount =
+              employeeBills.fold(0.0, (sum, b) => sum + b.amount);
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _glassCard(
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.greenAccent,
+                      child: Text(
+                        employee.name.substring(0, 1).toUpperCase(),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    title: Text(employee.name,
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('ID: ${employee.employeeId}'),
+                        Text('Total Bills: ${employeeBills.length}'),
+                        Text(
+                            'Total Amount: ₹${totalAmount.toStringAsFixed(2)}'),
+                      ],
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      onSelected: (value) {
+                        if (value == 'edit') {
+                          _showEditUserDialog(employee);
+                        } else if (value == 'delete') {
+                          _showDeleteConfirmationDialog(employee);
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        ),
+
+        // FAB
+        Positioned(
+          right: 18,
+          bottom: 18,
+          child: FloatingActionButton.extended(
+            backgroundColor: primaryGreen,
+            icon: const Icon(Icons.person_add, color: Colors.white),
+            label: const Text("Add Employee",
+                style: TextStyle(color: Colors.white)),
+            onPressed: _showCreateUserDialog,
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 
@@ -691,6 +842,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     employeeIdToEdit: employee.employeeId,
                     newName: nameController.text,
                     newPassword: passwordController.text,
+                    isApproved: true
                   );
                   Navigator.pop(context);
                   if (success) {
@@ -1145,6 +1297,280 @@ class _AdminDashboardState extends State<AdminDashboard>
         ),
       );
     }
+  }
+
+  void _showCreateUserDialog() {
+    final formKey = GlobalKey<FormState>();
+    final idController = TextEditingController();
+    final nameController = TextEditingController();
+    final passwordController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        bool isAdmin = false;
+
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Create Employee'),
+              content: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+
+                    TextFormField(
+                      controller: idController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                          labelText: 'Employee ID'),
+                      validator: (v) =>
+                      v == null || v.isEmpty
+                          ? 'Required'
+                          : null,
+                    ),
+
+                    TextFormField(
+                      controller: nameController,
+                      decoration: const InputDecoration(labelText: 'Full Name'),
+                      validator: (v) =>
+                      v == null || v.isEmpty
+                          ? 'Required'
+                          : null,
+                    ),
+
+                    TextFormField(
+                      controller: passwordController,
+                      decoration: const InputDecoration(labelText: 'Password'),
+                      validator: (v) =>
+                      v == null || v.isEmpty
+                          ? 'Required'
+                          : null,
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("Register as Admin"),
+                        Switch(
+                          value: isAdmin,
+                          onChanged: (v) {
+                            setStateDialog(() {
+                              isAdmin = v;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel')),
+                ElevatedButton(
+                  child: const Text('Create'),
+                  onPressed: () async {
+                    if (!formKey.currentState!.validate()) return;
+
+                    final success = await ApiService.signUp(
+                        idController.text.trim(),
+                        nameController.text.trim(),
+                        passwordController.text.trim(),
+                        isAdmin
+                    );
+
+                    Navigator.pop(context);
+
+                    if (success) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text(
+                            'Employee created successfully'),
+                            backgroundColor: Colors.green),
+                      );
+                      _loadData();
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text(
+                            'Failed to create employee'),
+                            backgroundColor: Colors.red),
+                      );
+                    }
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showUserRequestsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+          actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+
+          title: const Text("New User Requests"),
+
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            child: _pendingUsers.isEmpty
+                ? const Text("No pending requests")
+                : ListView.builder(
+              shrinkWrap: true,
+              itemCount: _pendingUsers.length,
+              itemBuilder: (context, i) {
+                final user = _pendingUsers[i];
+
+                return ListTile(
+                  dense: true,
+                  leading: const CircleAvatar(
+                    radius: 18,
+                    child: Icon(Icons.person, size: 18),
+                  ),
+
+                  title: Text(
+                    user.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+
+                  subtitle: Text(
+                    "ID: ${user.employeeId}\nAdmin: ${user.isAdmin ? "Yes" : "No"}",
+                  ),
+
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.check, color: Colors.green),
+                        onPressed: () => _approveUser(user),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.red),
+                        onPressed: () => _rejectUser(user),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+
+          actions: [
+            if (_pendingUsers.isNotEmpty)
+              ElevatedButton.icon(
+                icon: const Icon(Icons.done_all),
+                label: const Text("Approve All"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                ),
+                onPressed: _approveAllUsers,
+              ),
+
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+  Future<void> _approveUser(User user) async {
+    final success = await ApiService.editUser(
+      adminId: _adminId!,
+      adminPassword: _adminPassword!,
+      employeeIdToEdit: user.employeeId,
+      newName: user.name,
+      newPassword: user.password,
+      isApproved: true
+    );
+
+    if (success) {
+      Navigator.pop(context);
+      _loadData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("User approved"), backgroundColor: Colors.green),
+      );
+    }
+  }
+
+  Future<void> _rejectUser(User user) async {
+    final success = await ApiService.deleteUser(
+      adminId: _adminId!,
+      adminPassword: _adminPassword!,
+      employeeIdToDelete: user.employeeId,
+    );
+
+    if (success) {
+      Navigator.pop(context);
+      _loadData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("User rejected"), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _approveAllUsers() async {
+
+    if (_pendingUsers.isEmpty) return;
+
+    int successCount = 0;
+
+    for (final user in _pendingUsers) {
+
+      final success = await ApiService.editUser(
+        adminId: _adminId!,
+        adminPassword: _adminPassword!,
+        employeeIdToEdit: user.employeeId,
+        newName: user.name,
+        newPassword: user.password,
+        isApproved: true,
+      );
+      if (success) successCount++;
+    }
+
+    Navigator.pop(context);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("$successCount users approved"),
+        backgroundColor: Colors.green,
+      ),
+    );
+    _loadData();
+  }
+
+  List<User> _getFilteredEmployees() {
+
+    List<User> list = [..._employees];
+
+    // search
+    if (_employeeSearch.isNotEmpty) {
+      list = list.where((u) =>
+      u.name.toLowerCase().contains(_employeeSearch.toLowerCase()) ||
+          u.employeeId.toString().contains(_employeeSearch)
+      ).toList();
+    }
+
+    // sorting
+    if (_employeeSort == "name") {
+      list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    } else if (_employeeSort == "id_desc") {
+      list.sort((a, b) => b.employeeId.compareTo(a.employeeId));
+    } else {
+      list.sort((a, b) => a.employeeId.compareTo(b.employeeId));
+    }
+
+    return list;
   }
 
   @override

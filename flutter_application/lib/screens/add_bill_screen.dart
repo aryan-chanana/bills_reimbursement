@@ -9,6 +9,7 @@ import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
 import '../services/ocr_service.dart';
 import '../services/offline_queue_service.dart';
+import 'package:flutter/foundation.dart';
 
 class AddBillScreen extends StatefulWidget {
   final int employeeId;
@@ -30,7 +31,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
 
   String _selectedCategory = 'Travel';
   DateTime _selectedDate = DateTime.now();
-  File? _imageFile;
+  XFile? _imageFile;
   bool _isLoading = false;
   bool _isAnalyzing = false;
 
@@ -195,7 +196,9 @@ class _AddBillScreenState extends State<AddBillScreen> {
                               width: double.infinity,
                               color: Colors.grey.shade300,
                               child: _imageFile != null
-                                  ? Image.file(_imageFile!, fit: BoxFit.cover)
+                                  ? (kIsWeb
+                                  ? Image.network(_imageFile!.path, fit: BoxFit.cover)
+                                  : Image.file(File(_imageFile!.path), fit: BoxFit.cover))
                                   : Column(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -298,14 +301,13 @@ class _AddBillScreenState extends State<AddBillScreen> {
     final pickedFile = await ImagePicker().pickImage(source: source);
     if (pickedFile == null) return;
 
-    final imageFile = File(pickedFile.path);
     setState(() {
-      _imageFile = imageFile;
+      _imageFile = pickedFile;
       _isAnalyzing = true;
     });
 
     try {
-      final extractedData = await OcrService.processImage(imageFile);
+      final extractedData = await OcrService.processImage(File(pickedFile.path));
       print("DEBUG OCR Result: $extractedData");
 
       if (extractedData['amount'] != null) {
