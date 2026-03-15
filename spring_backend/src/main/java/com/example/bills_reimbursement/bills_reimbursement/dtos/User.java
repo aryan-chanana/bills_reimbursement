@@ -30,6 +30,9 @@ public class User implements UserDetails {
     @Column(name = "is_admin", nullable = false)
     private boolean isAdmin;
 
+    @Column(name = "is_approved", nullable = false)
+    private boolean isApproved;
+
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
@@ -69,6 +72,7 @@ public class User implements UserDetails {
         userResponseDTO.setEmployeeId(user.getEmployeeId());
         userResponseDTO.setName(user.getName());
         userResponseDTO.setAdmin(user.isAdmin());
+        userResponseDTO.setApproved(user.isApproved());
         return userResponseDTO;
     }
 }

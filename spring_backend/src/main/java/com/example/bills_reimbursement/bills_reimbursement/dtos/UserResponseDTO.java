@@ -9,4 +9,6 @@ public class UserResponseDTO {
     private String name;
 
     private boolean isAdmin;
+
+    private boolean isApproved;
 }

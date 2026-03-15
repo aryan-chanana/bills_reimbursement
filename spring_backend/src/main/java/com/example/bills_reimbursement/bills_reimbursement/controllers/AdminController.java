@@ -55,7 +55,6 @@ public class AdminController {
     public ResponseEntity<?> editUser(@RequestBody User updatedUserDetails,
                                       @PathVariable Integer employeeId) {
         Optional<User> existingUserOpt = userRepository.findByEmployeeId(employeeId);
-
         if (existingUserOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "User not found"));
@@ -63,7 +62,8 @@ public class AdminController {
 
         User existingUser = existingUserOpt.get();
         existingUser.setName(updatedUserDetails.getName());
-        existingUser.setPassword(updatedUserDetails.getPassword());
+        existingUser.setApproved(updatedUserDetails.isApproved());
+        if (!updatedUserDetails.getPassword().isEmpty()) existingUser.setPassword(updatedUserDetails.getPassword());
 
         if (!updatedUserDetails.getEmployeeId().equals(employeeId)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)

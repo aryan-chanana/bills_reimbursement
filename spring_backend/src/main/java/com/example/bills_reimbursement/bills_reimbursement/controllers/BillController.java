@@ -69,6 +69,10 @@ public class BillController {
         }
 
         Optional<User> targetUser = userRepository.findByEmployeeId(employeeId);
+        if (targetUser.isPresent() && !targetUser.get().isApproved()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "User not approved yet"));
+        }
         if (targetUser.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "User to associate bill with not found"));
