@@ -27,7 +27,6 @@ public class UserController {
     public ResponseEntity<UserResponseDTO> getUser(@PathVariable Integer employeeId, Authentication authentication) {
         User userDetails = (User) authentication.getPrincipal();
         Integer loggedInEmployeeId = userDetails.getEmployeeId();
-
         if (!userDetails.isAdmin() && !loggedInEmployeeId.equals(employeeId)) {
             return ResponseEntity.status(403).build();
         }
@@ -36,8 +35,8 @@ public class UserController {
         if (userOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
-
         User user = userOpt.get();
+        System.out.println("user = " + User.toDto(user));
         return ResponseEntity.ok(User.toDto(user));
     }
 
