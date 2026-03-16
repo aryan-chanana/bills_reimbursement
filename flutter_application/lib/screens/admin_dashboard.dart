@@ -761,10 +761,46 @@ class _AdminDashboardState extends State<AdminDashboard>
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('ID: ${employee.employeeId}'),
+                        Row(
+                          children: [
+                            Text('ID: ${employee.employeeId}'),
+
+                            if (employee.isAdmin) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: Colors.orange),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.admin_panel_settings,
+                                      size: 14,
+                                      color: Colors.orange,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      "ADMIN",
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.orange,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                         Text('Total Bills: ${employeeBills.length}'),
-                        Text(
-                            'Total Amount: ₹${totalAmount.toStringAsFixed(2)}'),
+                        Text('Total Amount: ₹${totalAmount.toStringAsFixed(2)}'),
                       ],
                     ),
                     trailing: PopupMenuButton<String>(
