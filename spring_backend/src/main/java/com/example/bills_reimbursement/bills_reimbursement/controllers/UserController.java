@@ -36,7 +36,6 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
         User user = userOpt.get();
-        System.out.println("user = " + User.toDto(user));
         return ResponseEntity.ok(User.toDto(user));
     }
 
