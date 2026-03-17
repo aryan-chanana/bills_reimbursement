@@ -971,7 +971,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
         return Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 60), // reduces padding
+          insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 60),
           child: StatefulBuilder(
             builder: (context, setState) {
               return Padding(
@@ -987,19 +987,20 @@ class _UserDashboardState extends State<UserDashboard> {
                           icon: Icon(Icons.close),
                           onPressed: () => Navigator.pop(context),
                         ),
-                        Text("Select range", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                        Text("Select range",
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+
+                        // 🔁 SHOW ALL moved here
                         TextButton(
                           onPressed: () {
-                            if (start != null && end != null) {
-                              Navigator.pop(context);
-                              setState(() {
-                                _startDate = start!;
-                                _endDate = end!;
-                              });
-                              _applyFilters();
-                            }
+                            Navigator.pop(context);
+                            setState(() {
+                              _startDate = DateTime(2020);
+                              _endDate = DateTime.now();
+                            });
+                            _applyFilters();
                           },
-                          child: Text("Save"),
+                          child: Text("Show All"),
                         ),
                       ],
                     ),
@@ -1008,7 +1009,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
                     // CALENDAR
                     TableCalendar(
-                      focusedDay: start != null ? start!: DateTime.now(),
+                      focusedDay: start != null ? start! : DateTime.now(),
                       firstDay: DateTime(2020),
                       lastDay: DateTime.now(),
                       rangeStartDay: start,
@@ -1043,18 +1044,22 @@ class _UserDashboardState extends State<UserDashboard> {
                             _applyFilters();
                           },
                         ),
+
+                        // 🔁 SAVE moved here
                         ElevatedButton.icon(
-                          icon: Icon(Icons.date_range),
-                          label: Text("Show All"),
+                          icon: Icon(Icons.save),
+                          label: Text("Save"),
                           onPressed: () {
-                            Navigator.pop(context);
-                            setState(() {
-                              _startDate = DateTime(2020);
-                              _endDate = DateTime.now();
-                            });
-                            _applyFilters();
+                            if (start != null && end != null) {
+                              Navigator.pop(context);
+                              setState(() {
+                                _startDate = start!;
+                                _endDate = end!;
+                              });
+                              _applyFilters();
+                            }
                           },
-                        )
+                        ),
                       ],
                     )
                   ],

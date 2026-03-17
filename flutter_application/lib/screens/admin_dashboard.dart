@@ -965,55 +965,69 @@ class _AdminDashboardState extends State<AdminDashboard>
         DateTime? end;
 
         return Dialog(
-          backgroundColor: Colors.transparent,
-          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 48),
-          child: _glassCard(
-            child: StatefulBuilder(
-              builder: (context, setState) => Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header
-                  Row(
-                    children: [
-                      IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                      const Expanded(
-                        child: Center(child: Text('Select Range', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          if (start != null && end != null) {
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 60),
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // HEADER
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.close),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                        Text("Select range",
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+
+                        // 🔁 SHOW ALL moved here
+                        TextButton(
+                          onPressed: () {
                             Navigator.pop(context);
                             setState(() {
-                              _startDate = start!;
-                              _endDate = end!;
+                              _startDate = DateTime(2020);
+                              _endDate = DateTime.now();
                             });
                             _applyFilters();
-                          }
-                        },
-                        child: const Text('Save'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  // Calendar
-                  TableCalendar(
-                    focusedDay: start != null ? start! : DateTime.now(),
-                    firstDay: DateTime(2020),
-                    lastDay: DateTime.now(),
-                    rangeStartDay: start,
-                    rangeEndDay: end,
-                    onRangeSelected: (s, e, _) => setState(() { start = s; end = e; }),
-                    rangeSelectionMode: RangeSelectionMode.enforced,
-                    headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
-                  ),
-                  const SizedBox(height: 12),
-                  // Footer buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton.icon(
-                          icon: const Icon(Icons.clear),
-                          label: const Text('Clear'),
+                          },
+                          child: Text("Show All"),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    // CALENDAR
+                    TableCalendar(
+                      focusedDay: start != null ? start! : DateTime.now(),
+                      firstDay: DateTime(2020),
+                      lastDay: DateTime.now(),
+                      rangeStartDay: start,
+                      rangeEndDay: end,
+                      onRangeSelected: (s, e, f) {
+                        setState(() {
+                          start = s;
+                          end = e;
+                        });
+                      },
+                      rangeSelectionMode: RangeSelectionMode.enforced,
+                      headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    // FOOTER BUTTONS
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        TextButton.icon(
+                          icon: Icon(Icons.clear),
+                          label: Text("Clear"),
                           onPressed: () {
                             setState(() {
                               start = null;
@@ -1025,31 +1039,28 @@ class _AdminDashboardState extends State<AdminDashboard>
                             _applyFilters();
                           },
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.date_range),
-                          label: const Text('Show All'),
+
+                        // 🔁 SAVE moved here
+                        ElevatedButton.icon(
+                          icon: Icon(Icons.save),
+                          label: Text("Save"),
                           onPressed: () {
-                            Navigator.pop(context);
-                            setState(() {
-                              _startDate = DateTime(2020);
-                              _endDate = DateTime.now();
-                            });
-                            _applyFilters();
+                            if (start != null && end != null) {
+                              Navigator.pop(context);
+                              setState(() {
+                                _startDate = start!;
+                                _endDate = end!;
+                              });
+                              _applyFilters();
+                            }
                           },
-                          style: ElevatedButton.styleFrom(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+                      ],
+                    )
+                  ],
+                ),
+              );
+            },
           ),
         );
       },
