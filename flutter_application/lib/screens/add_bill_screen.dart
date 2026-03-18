@@ -93,6 +93,8 @@ class _AddBillScreenState extends State<AddBillScreen> {
       ),
 
       body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [kBgTop, kBgBottom],
@@ -104,18 +106,94 @@ class _AddBillScreenState extends State<AddBillScreen> {
           children: [
 
             // ✅ MAIN CONTENT
-            SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 90, 16, 24),
-              child: Form(
+            SafeArea(
+              child : SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+                physics: const ClampingScrollPhysics(),
+                child: Form(
                 key: _formKey,
                 child: Column(
                   children: [
+
+                    glassCard(
+                      child: Column(
+                        children: [
+
+                          Text("Bill Image",
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+
+                          if (_imageFile != null) ...[
+                            // 3. Tappable Preview
+                            GestureDetector(
+                              onTap: () => _showFullImagePreview(File(_imageFile!.path)),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Stack(
+                                  alignment: Alignment.bottomRight,
+                                  children: [
+                                    Container(
+                                      height: 200,
+                                      width: double.infinity,
+                                      child: kIsWeb
+                                          ? Image.network(_imageFile!.path, fit: BoxFit.cover)
+                                          : Image.file(File(_imageFile!.path), fit: BoxFit.cover),
+                                    ),
+                                    Container(
+                                      margin: EdgeInsets.all(8),
+                                      padding: EdgeInsets.all(4),
+                                      decoration: BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
+                                      child: Icon(Icons.fullscreen, color: Colors.white, size: 20),
+                                    )
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+
+                          const SizedBox(height: 20),
+
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _pickAndProcessImage(ImageSource.gallery),
+                                  icon: Icon(Icons.photo, color: Colors.white),
+                                  label: Text("Gallery", style: TextStyle(color: Colors.white)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kPrimaryBlue,
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _pickAndProcessImage(ImageSource.camera),
+                                  icon: Icon(Icons.camera_alt, color: Colors.white),
+                                  label: Text("Camera", style: TextStyle(color: Colors.white)),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kPrimaryBlue,
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 20),
 
                     // ✅ Category + Amount + Date card (glass)
                     glassCard(
                       child: Column(
                         children: [
                           DropdownButtonFormField<String>(
+                            isExpanded: true,
                             value: _selectedCategory,
                             decoration: InputDecoration(
                               labelText: 'Reimbursement For',
@@ -158,7 +236,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                             onTap: _selectDate,
                             child: InputDecorator(
                               decoration: InputDecoration(
-                                labelText: 'Date',
+                                labelText: 'Date of Bill',
                                 prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
                                 filled: true,
                                 fillColor: Colors.white,
@@ -171,75 +249,6 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                 style: TextStyle(fontSize: 16),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 20),
-
-                    // ✅ Image Upload Glass Card
-                    glassCard(
-                      child: Column(
-                        children: [
-
-                          Text("Bill Image",
-                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
-
-                          const SizedBox(height: 16),
-
-                          // ✅ Preview box
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: Container(
-                              height: 200,
-                              width: double.infinity,
-                              color: Colors.grey.shade300,
-                              child: _imageFile != null
-                                  ? (kIsWeb
-                                  ? Image.network(_imageFile!.path, fit: BoxFit.cover)
-                                  : Image.file(File(_imageFile!.path), fit: BoxFit.cover))
-                                  : Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.image, size: 70, color: Colors.grey.shade600),
-                                  SizedBox(height: 6),
-                                  Text("No image selected", style: TextStyle(color: Colors.grey.shade700)),
-                                ],
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () => _pickAndProcessImage(ImageSource.gallery),
-                                  icon: Icon(Icons.photo, color: Colors.white),
-                                  label: Text("Gallery", style: TextStyle(color: Colors.white)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kPrimaryBlue,
-                                    padding: EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  onPressed: () => _pickAndProcessImage(ImageSource.camera),
-                                  icon: Icon(Icons.camera_alt, color: Colors.white),
-                                  label: Text("Camera", style: TextStyle(color: Colors.white)),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: kPrimaryBlue,
-                                    padding: EdgeInsets.symmetric(vertical: 12),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  ),
-                                ),
-                              ),
-                            ],
                           ),
                         ],
                       ),
@@ -267,6 +276,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                   ],
                 ),
               ),
+              )
             ),
 
             // ✅ OCR overlay (unchanged)
@@ -308,9 +318,8 @@ class _AddBillScreenState extends State<AddBillScreen> {
 
     try {
       final extractedData = await OcrService.processImage(File(pickedFile.path));
-      print("DEBUG OCR Result: $extractedData");
 
-      if (extractedData['amount'] != null) {
+      if (extractedData['amount'] != null && _amountController.text.isEmpty) {
         _amountController.text = (extractedData['amount'] as double).toStringAsFixed(2);
       }
       if (extractedData['date'] != null) {
@@ -419,6 +428,28 @@ class _AddBillScreenState extends State<AddBillScreen> {
     List<String> queue = prefs.getStringList('offline_bills') ?? [];
     queue.add(billData.toString());
     await prefs.setStringList('offline_bills', queue);
+  }
+
+  void _showFullImagePreview(File file) {
+    showDialog(
+      context: context,
+      builder: (context) => Scaffold(
+        backgroundColor: Colors.black.withOpacity(0.9),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(icon: Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            panEnabled: true,
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Image.file(file),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
