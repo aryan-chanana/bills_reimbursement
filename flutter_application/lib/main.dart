@@ -5,13 +5,11 @@ import 'screens/login_screen.dart';
 import 'screens/user_dashboard.dart';
 import 'screens/admin_dashboard.dart';
 import 'package:flutter_native_splash/flutter_native_splash.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   WidgetsBinding widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
-  await dotenv.load(fileName: ".env");
 
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
