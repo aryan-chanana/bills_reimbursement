@@ -7,7 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
 
 class ApiService {
-  static String baseUrl = String.fromEnvironment(
+  static const String baseUrl = String.fromEnvironment(
       'API_BASE_URL',
       defaultValue: 'http://localhost:8080'
   );
@@ -22,13 +22,10 @@ class ApiService {
 
   // Users
   static Future<User?> login(String employeeId, String password) async {
-    print("here 1");
     final response = await http.get(
       Uri.parse('$baseUrl/users/$employeeId'),
       headers: getAuthHeaders(employeeId, password),
     );
-    print("here 2");
-    print("got response from api = " + response.statusCode.toString());
 
     if (response.statusCode == 200) {
       return User.fromJson(jsonDecode(response.body));
@@ -183,7 +180,6 @@ class ApiService {
     if (response.statusCode == 200) {
       return true;
     } else {
-      debugPrint('Failed to edit bill: ${response.statusCode} ${response.body}');
       return false;
     }
   }

@@ -6,9 +6,7 @@ import 'api_service.dart';
 class ConnectivityService {
   static Future<bool> hasInternet() async {
     try {
-      debugPrint("has internet entered");
       if (kIsWeb) {
-        debugPrint("returning true from here");
         return true;
       }
       final result = await InternetAddress.lookup('google.com');
