@@ -5,10 +5,12 @@ import '../models/bill_model.dart';
 import '../models/user_model.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class ApiService {
-  static String baseUrl = dotenv.env['API_BASE_URL']!;
+  static String baseUrl = String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'http://localhost:8080'
+  );
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
     String basicAuth = 'Basic ${base64Encode(utf8.encode('$employeeId:$password'))}';

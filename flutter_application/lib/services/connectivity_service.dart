@@ -6,9 +6,9 @@ import 'api_service.dart';
 class ConnectivityService {
   static Future<bool> hasInternet() async {
     try {
-      print("has internet entered");
+      debugPrint("has internet entered");
       if (kIsWeb) {
-        print("returning true from here");
+        debugPrint("returning true from here");
         return true;
       }
       final result = await InternetAddress.lookup('google.com');
@@ -20,7 +20,7 @@ class ConnectivityService {
   }
 
   static Future<bool> isServerAlive() async {
-    print("Entered is server alive");
+    debugPrint("Entered is server alive");
     try {
       final client = http.Client();
       final request = http.Request(
