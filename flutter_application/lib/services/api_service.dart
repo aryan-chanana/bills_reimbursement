@@ -20,10 +20,13 @@ class ApiService {
 
   // Users
   static Future<User?> login(String employeeId, String password) async {
+    print("here 1");
     final response = await http.get(
       Uri.parse('$baseUrl/users/$employeeId'),
       headers: getAuthHeaders(employeeId, password),
     );
+    print("here 2");
+    print("got response from api = " + response.statusCode.toString());
 
     if (response.statusCode == 200) {
       return User.fromJson(jsonDecode(response.body));
