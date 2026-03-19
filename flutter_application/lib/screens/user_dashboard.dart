@@ -185,6 +185,8 @@ class _UserDashboardState extends State<UserDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    final totalAmt = _filteredBills.fold<double>(0.0, (sum, b) => sum + b.amount);
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       appBar: AppBar(
@@ -225,25 +227,6 @@ class _UserDashboardState extends State<UserDashboard> {
         child: SafeArea(
           child: Column(
             children: [
-              // Monthly total (glass)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: _glassCard(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text("This Month's Total", style: TextStyle(fontSize: 14, color: Colors.grey)),
-                        const SizedBox(height: 6),
-                        Text('₹${_monthlyTotal.toStringAsFixed(2)}',
-                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kPrimaryBlue)),
-                      ]),
-                      Icon(Icons.account_balance_wallet, size: 40, color: kPrimaryBlue),
-                    ],
-                  ),
-                ),
-              ),
-
               // Filters (glass)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -299,6 +282,25 @@ class _UserDashboardState extends State<UserDashboard> {
                           child: const Icon(Icons.date_range, color: Colors.white),
                         ),
                       ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Monthly total (glass)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: _glassCard(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text("Total", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                        const SizedBox(height: 6),
+                        Text('₹${totalAmt.toStringAsFixed(2)}',
+                            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kPrimaryBlue)),
+                      ]),
+                      Icon(Icons.account_balance_wallet, size: 40, color: kPrimaryBlue),
                     ],
                   ),
                 ),

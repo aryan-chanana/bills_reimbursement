@@ -18,7 +18,6 @@ class ConnectivityService {
   }
 
   static Future<bool> isServerAlive() async {
-    debugPrint("Entered is server alive");
     try {
       final client = http.Client();
       final request = http.Request(
