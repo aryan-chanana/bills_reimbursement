@@ -8,6 +8,7 @@ import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepo
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -15,11 +16,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-/*
-    Controller for admin-specific operations like managing users and bills.
-*/
 @CrossOrigin(origins = "*")
 @RestController
+@RequestMapping("/admin")
 public class AdminController {
 
     @Autowired
@@ -51,29 +50,6 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("message", "User has been deleted"));
     }
 
-    @PutMapping("/users/{employeeId}")
-    public ResponseEntity<?> editUser(@RequestBody User updatedUserDetails,
-                                      @PathVariable Integer employeeId) {
-        Optional<User> existingUserOpt = userRepository.findByEmployeeId(employeeId);
-        if (existingUserOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "User not found"));
-        }
-
-        User existingUser = existingUserOpt.get();
-        existingUser.setName(updatedUserDetails.getName());
-        existingUser.setApproved(updatedUserDetails.isApproved());
-        if (!updatedUserDetails.getPassword().isEmpty()) existingUser.setPassword(updatedUserDetails.getPassword());
-
-        if (!updatedUserDetails.getEmployeeId().equals(employeeId)) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "User id mismatch"));
-        }
-
-        User savedUser = userRepository.save(existingUser);
-        return ResponseEntity.ok(User.toDto(savedUser));
-    }
-
     @GetMapping("/bills")
     public ResponseEntity<List<Bill>> getAllBills() {
         List<Bill> bills = billRepository.findAllByOrderByDateDesc();
@@ -97,7 +73,7 @@ public class AdminController {
 
         Bill bill = billOpt.get();
 
-        if (bill.getStatus().equalsIgnoreCase("ARRPOVED") && !newStatus.equalsIgnoreCase("PAID")) {
+        if (!bill.getStatus().equalsIgnoreCase("APPROVED") && newStatus.equalsIgnoreCase("PAID")) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "Cannot pay an unapproved bill"));
         }
@@ -116,6 +92,38 @@ public class AdminController {
                 "billId", bill.getBillId(),
                 "status", bill.getStatus()
         ));
+    }
+
+    @PutMapping("/users/{employeeId}")
+    public ResponseEntity<?> editUser(@RequestBody User updatedUserDetails,
+                                      @PathVariable Integer employeeId) {
+        Optional<User> existingUserOpt = userRepository.findByEmployeeId(employeeId);
+        if (existingUserOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "User not found"));
+        }
+
+        User existingUser = existingUserOpt.get();
+
+        if (!updatedUserDetails.getEmployeeId().equals(employeeId)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "User id mismatch"));
+        }
+
+        if (updatedUserDetails.getName() != null && !updatedUserDetails.getName().isEmpty())
+            existingUser.setName(updatedUserDetails.getName());
+        if (updatedUserDetails.getEmail() != null && !updatedUserDetails.getEmail().isEmpty()) {
+            if (updatedUserDetails.getEmail().endsWith("@axeno.co"))
+                existingUser.setEmail(updatedUserDetails.getEmail());
+            else
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(Map.of("error", "Not a valid email address"));
+        }
+        existingUser.setApproved(updatedUserDetails.isApproved());
+
+
+        User savedUser = userRepository.save(existingUser);
+        return ResponseEntity.ok(User.toDto(savedUser));
     }
 
     @GetMapping("/ping")

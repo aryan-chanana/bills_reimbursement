@@ -57,9 +57,12 @@ public class BillController {
 
     @PostMapping
     public ResponseEntity<?> addBill(@RequestParam("reimbursementFor") String reimbursementFor,
+                                     @RequestParam(value = "description", required = false) String description,
                                      @RequestParam("amount") Double amount,
                                      @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                     @RequestParam(value = "approvalMail", required = false) MultipartFile approvalMail,
                                      @RequestParam("billImage") MultipartFile billImage,
+                                     @RequestParam(value = "paymentProof", required = false) MultipartFile paymentProof,
                                      @PathVariable int employeeId, Authentication authentication) {
 
         boolean loggedInUser = authenticateUser(employeeId, authentication);
@@ -74,19 +77,25 @@ public class BillController {
                     .body(Map.of("error", "User not approved yet"));
         }
         if (targetUser.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "User to associate bill with not found"));
+            return ResponseEntity.badRequest().body(Map.of("error", "User to associate bill with not found"));
         }
 
-        String fileName = fileStorageService.storeFile(billImage, employeeId);
+        if (!reimbursementFor.equalsIgnoreCase("Parking")) {
+            if (approvalMail == null || paymentProof == null || description == null || description.isEmpty()) {
+                return ResponseEntity.badRequest().body("Approval mail, Payment proof & Description are required for this category");
+            }
+        }
 
         Bill newBill = new Bill();
         newBill.setReimbursementFor(reimbursementFor);
+        newBill.setBillDescription(description);
         newBill.setAmount(amount);
         newBill.setDate(date);
         newBill.setStatus("Pending");
         newBill.setUser(targetUser.get());
-        newBill.setBillImagePath(fileName);
+        newBill.setApprovalMailPath(approvalMail != null ? fileStorageService.storeFile(approvalMail, employeeId, "approval") : null);
+        newBill.setBillImagePath(fileStorageService.storeFile(billImage, employeeId, "bill"));
+        newBill.setPaymentProofPath(paymentProof != null ? fileStorageService.storeFile(paymentProof, employeeId, "payment") : null);
         newBill.setCreatedAt(LocalDate.now());
         Bill savedBill = billRepository.save(newBill);
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -113,9 +122,12 @@ public class BillController {
 
     @PutMapping("/{billId}")
     public ResponseEntity<?> editBill(@RequestParam("reimbursementFor") String reimbursementFor,
+                                      @RequestParam(value = "description", required = false) String description,
                                       @RequestParam("amount") Double amount,
                                       @RequestParam("date") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+                                      @RequestParam(value = "approvalMail", required = false) MultipartFile approvalMail,
                                       @RequestParam(value = "billImage", required = false) MultipartFile billImage,
+                                      @RequestParam(value = "paymentProof", required = false) MultipartFile paymentProof,
                                       @PathVariable("employeeId") Integer employeeId,
                                       @PathVariable("billId") Integer billId, Authentication authentication) {
 
@@ -134,6 +146,15 @@ public class BillController {
         if (!existingBill.getUser().getEmployeeId().equals(employeeId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
+        if (!reimbursementFor.equalsIgnoreCase("Parking")) {
+            boolean hasApproval = (approvalMail != null && !approvalMail.isEmpty())
+                    || (existingBill.getApprovalMailPath() != null && !existingBill.getApprovalMailPath().isEmpty());
+            boolean hasPayment = (paymentProof != null && !paymentProof.isEmpty())
+                    || (existingBill.getPaymentProofPath() != null && !existingBill.getPaymentProofPath().isEmpty());
+            if (!hasApproval || !hasPayment) {
+                return ResponseEntity.badRequest().body("Approval mail and Payment proof are required for this category");
+            }
+        }
 
         if ("PAID".equalsIgnoreCase(existingBill.getStatus()) || "APPROVED".equalsIgnoreCase(existingBill.getStatus())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot edit an approved bill."));
@@ -141,12 +162,21 @@ public class BillController {
 
 
         existingBill.setReimbursementFor(reimbursementFor);
+        existingBill.setBillDescription(description);
         existingBill.setAmount(amount);
         existingBill.setDate(date);
         existingBill.setStatus("Pending");
         if (billImage != null && !billImage.isEmpty()) {
-            String fileName = fileStorageService.storeFile(billImage, employeeId);
+            String fileName = fileStorageService.storeFile(billImage, employeeId, "bill");
             existingBill.setBillImagePath(fileName);
+        }
+        if (approvalMail != null && !approvalMail.isEmpty()) {
+            String fileName = fileStorageService.storeFile(approvalMail, employeeId, "approval");
+            existingBill.setApprovalMailPath(fileName);
+        }
+        if (paymentProof != null && !paymentProof.isEmpty()) {
+            String fileName = fileStorageService.storeFile(paymentProof, employeeId, "payment");
+            existingBill.setPaymentProofPath(fileName);
         }
 
         billRepository.save(existingBill);
@@ -173,9 +203,8 @@ public class BillController {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
 
-        Set<String> NON_DELETABLE_STATUSES = Set.of("PAID", "APPROVED", "REJECTED");
         String status = Optional.ofNullable(bill.getStatus()).map(String::toUpperCase).orElse("UNKNOWN");
-        if (NON_DELETABLE_STATUSES.contains(status)) {
+        if (status.equals("PAID")) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot delete an approved bill."));
         }
 

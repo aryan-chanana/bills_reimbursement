@@ -1,5 +1,6 @@
 package com.example.bills_reimbursement.bills_reimbursement.dtos;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -25,11 +26,16 @@ public class User implements UserDetails {
     private String name;
 
     @Column(nullable = false)
+    private String email;
+
+    @Column(nullable = false)
     private String password;
 
+    @JsonProperty("isAdmin")
     @Column(name = "is_admin", nullable = false)
     private boolean isAdmin;
 
+    @JsonProperty("isApproved")
     @Column(name = "is_approved", nullable = false)
     private boolean isApproved;
 
@@ -71,6 +77,7 @@ public class User implements UserDetails {
         UserResponseDTO userResponseDTO = new UserResponseDTO();
         userResponseDTO.setEmployeeId(user.getEmployeeId());
         userResponseDTO.setName(user.getName());
+        userResponseDTO.setEmail(user.getEmail());
         userResponseDTO.setAdmin(user.isAdmin());
         userResponseDTO.setApproved(user.isApproved());
         return userResponseDTO;

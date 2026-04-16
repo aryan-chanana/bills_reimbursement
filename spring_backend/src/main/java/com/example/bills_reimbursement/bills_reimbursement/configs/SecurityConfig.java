@@ -11,7 +11,7 @@ import org.springframework.security.config.annotation.authentication.builders.Au
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.crypto.password.NoOpPasswordEncoder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -24,7 +24,7 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return NoOpPasswordEncoder.getInstance();
+        return new BCryptPasswordEncoder();
     }
 
     @Bean
@@ -45,20 +45,22 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users").permitAll() // registration
+                        .requestMatchers(HttpMethod.POST, "/users/*/send-otp").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/*/verify-otp").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/users/*/update-password").permitAll()
 
                         // check server connection
-                        .requestMatchers(HttpMethod.GET, "/ping").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/admin/ping").permitAll()
 
                         // 👇 Authenticated users can manage their own bills
                         .requestMatchers("/users/*/bills/**").authenticated()
 
                         // 👇 Admin-only access for user management
-                        .requestMatchers(HttpMethod.GET, "/bills").hasRole("ADMIN")
-
-                        .requestMatchers(HttpMethod.GET, "/users").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/users/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/users/**").hasRole("ADMIN")
-
+                        .requestMatchers(HttpMethod.GET, "/admin/bills").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/admin/bills/*/status").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/admin/users").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/admin/users/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/admin/users/**").hasRole("ADMIN")
 
                         // 👇 Fallback
                         .anyRequest().authenticated()

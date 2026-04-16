@@ -30,14 +30,23 @@ public class Bill {
     @Column(name = "reimbursement_for", nullable = false)
     private String reimbursementFor;
 
+    @Column(name = "bill_description")
+    private String billDescription;
+
     @Column(nullable = false)
     private Double amount;
 
     @Column(nullable = false)
     private LocalDate date;
 
+    @Column(name = "approval_mail_path")
+    private String approvalMailPath;
+
     @Column(name = "bill_image_path", nullable = false)
     private String billImagePath;
+
+    @Column(name = "payment_proof_path")
+    private String paymentProofPath;
 
     @Column(nullable = false)
     private String status;

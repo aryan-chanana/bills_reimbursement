@@ -27,7 +27,7 @@ public class FileStorageService {
         }
     }
 
-    public String storeFile(MultipartFile file, Integer employeeId) {
+    public String storeFile(MultipartFile file, Integer employeeId, String fileType) {
         String originalFileName = file.getOriginalFilename();
         String fileExtension = "";
         if (originalFileName != null && originalFileName.contains(".")) {
@@ -35,7 +35,7 @@ public class FileStorageService {
         }
         String date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"));
         String shortUUID = UUID.randomUUID().toString().substring(0, 6);
-        String uniqueFileName = date + "_" + employeeId + "_" + shortUUID + fileExtension;
+        String uniqueFileName = date + "_" + employeeId + "_" + fileType + shortUUID + fileExtension;
 
         try {
             Path targetLocation = this.fileStorageLocation.resolve(uniqueFileName);
