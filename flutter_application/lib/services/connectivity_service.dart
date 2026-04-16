@@ -22,7 +22,7 @@ class ConnectivityService {
       final client = http.Client();
       final request = http.Request(
         "GET",
-        Uri.parse(ApiService.baseUrl + "/ping"),
+        Uri.parse(ApiService.baseUrl + "/admin/ping"),
       );
       final response = await client
           .send(request)

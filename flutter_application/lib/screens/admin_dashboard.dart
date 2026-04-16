@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -402,6 +405,24 @@ class _AdminDashboardState extends State<AdminDashboard>
 
           const SizedBox(height: 14),
 
+          if (_selectedStatus != null && _filteredBills.isNotEmpty) ...[
+            if (_selectedStatus!.toLowerCase() == 'pending')
+              _batchActionButton(
+                label: "Approve All Pending (${_filteredBills.length})",
+                icon: Icons.done_all,
+                color: Colors.green,
+                onPressed: _handleApproveAllBills,
+              ),
+            if (_selectedStatus!.toLowerCase() == 'approved')
+              _batchActionButton(
+                label: "Mark All Paid (${_filteredBills.length})",
+                icon: Icons.payments,
+                color: Colors.blue,
+                onPressed: _handleMarkAllAsPaid,
+              ),
+            const SizedBox(height: 16),
+          ],
+
           // Summary (Glass)
           _glassCard(
             child: Row(
@@ -442,7 +463,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(16),
-                      onTap: () => _showBillDetailsDialog(bill, employee),
+                      onTap: () => _showAdminBillDetailsModal(bill, employee),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
@@ -508,158 +529,283 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  void _showBillDetailsDialog(Bill bill, User employee) {
-    final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
-    final headers = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
+  Widget _batchActionButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onPressed
+  }) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        icon: Icon(icon, color: Colors.white),
+        label: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.all(16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        onPressed: onPressed,
+      ),
+    );
+  }
+
+  void _showAdminBillDetailsModal(Bill bill, User employee) {
+    final s = bill.status.toLowerCase();
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.62,      // ✅ compact height
-        minChildSize: 0.50,
-        maxChildSize: 0.80,
-        expand: false,
-        builder: (context, controller) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: _glassCard(
-              child: Column(
-                children: [
-                  // -------- HEADER ---------
-                  Row(
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          builder: (_, scrollController) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: Column(
+              children: [
+                // Pull Handle
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  height: 4, width: 40,
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                ),
+
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     children: [
-                      const Expanded(
-                        child: Text(
-                          'Bill Details',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      )
-                    ],
-                  ),
-
-                  const SizedBox(height: 6),
-
-                  Expanded(
-                    child: SingleChildScrollView(
-                      controller: controller,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      // Header Section
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Text('Employee: ${employee.name} (${employee.employeeId})'),
-                          Text('Category: ${bill.reimbursementFor}'),
-                          Text('Amount: ₹${bill.amount.toStringAsFixed(2)}'),
-                          Text('Bill Date: ${DateFormat('dd MMM yyyy').format(bill.date)}'),
-                          Text('Submitted: ${DateFormat('dd MMM yyyy').format(bill.createdAt!)}'),
-                          Text('Status: ${bill.status.toUpperCase()}'),
-
-                          if (bill.remarks?.isNotEmpty ?? false)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text('Remarks: ${bill.remarks!}',
-                                  style: const TextStyle(color: Colors.redAccent)),
-                            ),
-
-                          const SizedBox(height: 16),
-
-                          // ---------- IMAGE ----------
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: RepaintBoundary(
-                              child: InteractiveViewer(
-                                child: Image.network(
-                                  imageUrl,
-                                  headers: headers,
-                                  height: 260,
-                                  width: double.infinity,
-                                  fit: BoxFit.contain,
-                                  loadingBuilder: (context, child, progress) =>
-                                  progress == null ? child : const SizedBox(
-                                    height: 260,
-                                    child: Center(child: CircularProgressIndicator()),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                          _statusPill(bill.status),
+                          Text('₹${bill.amount.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.green[700])),
                         ],
                       ),
-                    ),
-                  ),
+                      const SizedBox(height: 20),
 
-                  const SizedBox(height: 14),
-
-                  if (bill.status.toLowerCase() == 'pending') ... [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => _onApprovePressed(bill),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            ),
-                            child: const Text("Approve", style: TextStyle(color: Colors.white)),
-                          ),
+                      // Employee Info Card
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () => _showRejectDialog(bill),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.red,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Row(
+                          children: [
+                            CircleAvatar(child: Text(employee.name[0])),
+                            const SizedBox(width: 12),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(employee.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                Text("Employee ID: ${employee.employeeId}", style: const TextStyle(fontSize: 12)),
+                              ],
                             ),
-                            child: const Text("Reject", style: TextStyle(color: Colors.white)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ]
-                  else if (bill.status.toLowerCase() == 'approved') ...[
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _confirmMarkAsPaid(bill),
-                        icon: const Icon(Icons.payments),
-                        label: const Text("Mark as Paid"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          ],
                         ),
                       ),
-                    )
-                  ]
-                  else if (bill.status.toLowerCase() == 'paid') ...[
+
+                      const SizedBox(height: 20),
+
+                      // Bill Info Rows
+                      _adminDetailRow(Icons.category, "Reimbursement For", bill.reimbursementFor),
+                      _adminDetailRow(Icons.calendar_today, "Bill Date", DateFormat('dd MMM yyyy').format(bill.date)),
+                      _adminDetailRow(Icons.access_time, "Submitted At", DateFormat('dd MMM yyyy, hh:mm a').format(bill.createdAt!)),
+
+                      // Add description row here if exists in your model
+                      if (bill.reimbursementFor != 'Parking' && bill.billDescription != null)
+                        _adminDetailRow(Icons.description, "Description", bill.billDescription!),
+
+                      if (bill.remarks != null && s == 'rejected')
+                        _adminDetailRow(Icons.comment, "Rejection Remarks", bill.remarks!, isError: true),
+
+                      const SizedBox(height: 20),
+
+                      // DOCUMENTS SECTION
+                      const Text("Documents", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 10),
+
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
-                          onPressed: () => {_downloadBillImage(bill), Navigator.pop(context)},
-                          icon: const Icon(Icons.download),
-                          label: const Text("Download Bill Image"),
+                          icon: const Icon(Icons.receipt_long),
+                          label: const Text("View Bill Receipt"),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.black87,
+                            backgroundColor: Colors.blue,
                             foregroundColor: Colors.white,
+                            padding: const EdgeInsets.all(14),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
                           ),
+                          onPressed: () => _viewDocument(bill.billImagePath, "Bill Receipt"),
                         ),
                       ),
+
+                      if (bill.reimbursementFor != 'Parking') ...[
+                        if (bill.approvalMailPath != null && bill.approvalMailPath!.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.mark_email_read),
+                              label: const Text("View Approval Mail"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: () => _viewDocument(bill.approvalMailPath!, "Approval Mail"),
+                            ),
+                          ),
+                        ],
+                        if (bill.paymentProofPath != null && bill.paymentProofPath!.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.payment),
+                              label: const Text("View Payment Proof"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.purple,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: () => _viewDocument(bill.paymentProofPath!, "Payment Proof"),
+                            ),
+                          ),
+                        ],
+                      ],
+
+                      const SizedBox(height: 24),
+
+                      // ✅ DYNAMIC ACTION BUTTONS
+                      if (s == 'pending') ...[
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.check),
+                                label: const Text("Approve"),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+                                onPressed: () { Navigator.pop(context); _onApprovePressed(bill); },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.close),
+                                label: const Text("Reject"),
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white, padding: const EdgeInsets.all(16)),
+                                onPressed: () { Navigator.pop(context); _showRejectDialog(bill); },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (s == 'approved') ...[
+                        Column(
+                          children: [
+                            // Primary Action: Mark as Paid
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.payments),
+                                label: const Text("Mark as Paid"),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blue,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.all(16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _confirmMarkAsPaid(bill);
+                                },
+                              ),
+                            ),
+
+                            const SizedBox(height: 12),
+
+                            // Secondary Action: Reject (even if approved)
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.close, color: Colors.red),
+                                label: const Text("Reject Approved Bill", style: TextStyle(color: Colors.red)),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.red),
+                                  padding: const EdgeInsets.all(16),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                ),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  _showRejectDialog(bill);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ] else if (s == 'paid') ...[
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            icon: const Icon(Icons.download),
+                            label: const Text("Download Record"),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.all(16)),
+                            onPressed: () {Navigator.pop(context); _downloadBillImage(bill); },
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 40),
                     ],
-                  const SizedBox(height: 8),
-                ],
-              ),
+                  ),
+                ),
+              ],
             ),
-          );
-        },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _adminDetailRow(IconData icon, String label, String value, {bool isError = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: isError ? Colors.red : Colors.grey[600]),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              Text(value, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: isError ? Colors.red : Colors.black87)),
+            ],
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _statusPill(String status) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: _getStatusColor(status),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(status.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -842,7 +988,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   void _showEditUserDialog(User employee) {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: employee.name);
-    final passwordController = TextEditingController(text: employee.password);
+    final emailController = TextEditingController(text: employee.email);
 
     showDialog(
       context: context,
@@ -860,9 +1006,9 @@ class _AdminDashboardState extends State<AdminDashboard>
                   validator: (value) => value == null || value.isEmpty ? 'Name cannot be empty' : null,
                 ),
                 TextFormField(
-                  controller: passwordController,
-                  decoration: const InputDecoration(labelText: 'Password'),
-                  validator: (value) => value == null || value.isEmpty ? 'Password cannot be empty' : null,
+                  controller: emailController,
+                  decoration: const InputDecoration(labelText: 'Email'),
+                  validator: (value) => value == null || value.isEmpty ? 'Email cannot be empty' : null,
                 ),
               ],
             ),
@@ -876,16 +1022,16 @@ class _AdminDashboardState extends State<AdminDashboard>
                     adminId: _adminId!,
                     adminPassword: _adminPassword!,
                     employeeIdToEdit: employee.employeeId,
-                    newName: nameController.text,
-                    newPassword: passwordController.text,
+                    name: nameController.text,
+                    email: emailController.text,
                     isApproved: true
                   );
                   Navigator.pop(context);
-                  if (success) {
+                  if (success == "true") {
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Employee updated successfully'), backgroundColor: Colors.green));
                     _loadData();
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to update employee'), backgroundColor: Colors.red));
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to update employee: $success'), backgroundColor: Colors.red));
                   }
                 }
               },
@@ -1098,7 +1244,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       status: "APPROVED",
     );
 
-    Navigator.pop(context);
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill approved'), backgroundColor: Colors.green));
       _loadData();
@@ -1209,7 +1354,6 @@ class _AdminDashboardState extends State<AdminDashboard>
                     remarks: remarks
                 );
 
-                Navigator.pop(context);
                 if (success) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bill rejected'), backgroundColor: Colors.green));
                   _loadData();
@@ -1239,6 +1383,110 @@ class _AdminDashboardState extends State<AdminDashboard>
           ),
         ],
       ),
+    );
+  }
+
+  void _viewDocument(String filePath, String title) async {
+    final url = '${ApiService.baseUrl}/files/$filePath';
+    final isPdf = filePath.toLowerCase().endsWith('.pdf');
+
+    final response = await http.get(Uri.parse(url), headers: ApiService.getAuthHeaders(_adminId!, _adminPassword!));
+    if (response.statusCode != 200) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Error'),
+          content: const Text('Could not load document.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+        ),
+      );
+      return;
+    }
+
+    final bytes = response.bodyBytes;
+    if (!mounted) return;
+
+    if (isPdf) {
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/${filePath.split('/').last}');
+      await tempFile.writeAsBytes(bytes);
+      await OpenFilex.open(tempFile.path);
+      return;
+    }
+
+    // Image viewer
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black87,
+      transitionDuration: const Duration(milliseconds: 200),
+      barrierLabel: 'Close',
+      pageBuilder: (_, __, ___) {
+        return Center(
+          child: Material(
+            color: Colors.transparent,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.92,
+                height: MediaQuery.of(context).size.height * 0.80,
+                color: Colors.white,
+                child: Column(
+                  children: [
+                    Container(
+                      height: 56,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [lightGreen, primaryGreen],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          Expanded(
+                            child: Center(
+                              child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white)),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(
+                      child: Container(
+                        color: Colors.black,
+                        child: InteractiveViewer(
+                          panEnabled: true,
+                          minScale: 1,
+                          maxScale: 4,
+                          child: Center(child: Image.memory(bytes, fit: BoxFit.contain)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (_, anim, __, child) {
+        return FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(scale: Tween<double>(begin: 0.95, end: 1.0).animate(anim), child: child),
+        );
+      },
     );
   }
 
@@ -1350,6 +1598,7 @@ class _AdminDashboardState extends State<AdminDashboard>
     final formKey = GlobalKey<FormState>();
     final idController = TextEditingController();
     final nameController = TextEditingController();
+    final emailController = TextEditingController();
     final passwordController = TextEditingController();
 
     showDialog(
@@ -1361,7 +1610,8 @@ class _AdminDashboardState extends State<AdminDashboard>
           builder: (context, setStateDialog) {
             return AlertDialog(
               title: const Text('Create Employee'),
-              content: Form(
+              content: SingleChildScrollView(
+                child: Form(
                 key: formKey,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -1381,6 +1631,15 @@ class _AdminDashboardState extends State<AdminDashboard>
                     TextFormField(
                       controller: nameController,
                       decoration: const InputDecoration(labelText: 'Full Name'),
+                      validator: (v) =>
+                      v == null || v.isEmpty
+                          ? 'Required'
+                          : null,
+                    ),
+
+                    TextFormField(
+                      controller: emailController,
+                      decoration: const InputDecoration(labelText: 'Email'),
                       validator: (v) =>
                       v == null || v.isEmpty
                           ? 'Required'
@@ -1412,7 +1671,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     ),
                   ],
                 ),
-              ),
+              )),
               actions: [
                 TextButton(onPressed: () => Navigator.pop(context),
                     child: const Text('Cancel')),
@@ -1424,6 +1683,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                     final success = await ApiService.signUp(
                         idController.text.trim(),
                         nameController.text.trim(),
+                        emailController.text.trim(),
                         passwordController.text.trim(),
                         isAdmin
                     );
@@ -1529,17 +1789,18 @@ class _AdminDashboardState extends State<AdminDashboard>
       },
     );
   }
+
   Future<void> _approveUser(User user) async {
     final success = await ApiService.editUser(
       adminId: _adminId!,
       adminPassword: _adminPassword!,
       employeeIdToEdit: user.employeeId,
-      newName: user.name,
-      newPassword: user.password,
+      name: user.name,
+      email: user.email,
       isApproved: true
     );
 
-    if (success) {
+    if (success == "true") {
       Navigator.pop(context);
       _loadData();
 
@@ -1578,11 +1839,11 @@ class _AdminDashboardState extends State<AdminDashboard>
         adminId: _adminId!,
         adminPassword: _adminPassword!,
         employeeIdToEdit: user.employeeId,
-        newName: user.name,
-        newPassword: user.password,
+        name: user.name,
+        email: user.email,
         isApproved: true,
       );
-      if (success) successCount++;
+      if (success == "true") successCount++;
     }
 
     Navigator.pop(context);
@@ -1620,9 +1881,76 @@ class _AdminDashboardState extends State<AdminDashboard>
     return list;
   }
 
+  Future<void> _handleApproveAllBills() async {
+    bool? confirm = await _showConfirmDialog(
+        "Approve All",
+        "Are you sure you want to approve all ${_filteredBills.length} pending bills currently shown?"
+    );
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    int successCount = 0;
+
+    for (final bill in _filteredBills) {
+      final success = await ApiService.changeStatus(
+        employeeId: int.parse(_adminId!),
+        password: _adminPassword!,
+        billId: bill.billId,
+        status: "APPROVED",
+      );
+      if (success) successCount++;
+    }
+
+    _loadData();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$successCount bills approved successfully!'), backgroundColor: Colors.green),
+    );
+  }
+
+  Future<void> _handleMarkAllAsPaid() async {
+    bool? confirm = await _showConfirmDialog(
+        "Mark All Paid",
+        "Confirm that all ${_filteredBills.length} approved bills shown have been paid?"
+    );
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    int successCount = 0;
+
+    for (final bill in _filteredBills) {
+      final success = await ApiService.changeStatus(
+        employeeId: int.parse(_adminId!),
+        password: _adminPassword!,
+        billId: bill.billId,
+        status: "PAID",
+      );
+      if (success) successCount++;
+    }
+
+    _loadData();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$successCount bills marked as paid!'), backgroundColor: Colors.blue),
+    );
+  }
+
+  Future<bool?> _showConfirmDialog(String title, String content) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text("Confirm")),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
   }
 }
+

@@ -26,7 +26,6 @@ void main() async {
       initialRoute = (isAdmin == true) ? '/admin_dashboard' : '/user_dashboard';
     }
   } catch (e) {
-    print('Error checking login status in main: $e');
     initialRoute = '/login';
   }
 
@@ -42,7 +41,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ExpenZ',
+      title: 'Bills',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,

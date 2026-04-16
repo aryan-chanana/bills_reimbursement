@@ -1,10 +1,13 @@
 import 'dart:io';
-import 'package:permission_handler/permission_handler.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +15,7 @@ import '../models/bill_model.dart';
 import '../screens/add_bill_screen.dart';
 import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
+import '../services/compression_service.dart';
 import '../services/offline_queue_service.dart';
 import 'package:flutter/foundation.dart';
 
@@ -100,10 +104,6 @@ class _UserDashboardState extends State<UserDashboard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
       }
-      // print(stack);
-      // if (mounted) {
-      //   _showErrorDialog("\nUnable to load bills.\nPlease try again later.");
-      // }
     }
     finally {
       if (mounted) setState(() => _isLoading = false);
@@ -196,6 +196,11 @@ class _UserDashboardState extends State<UserDashboard> {
         title: Text('${_userName.toUpperCase()}, $_employeeId', overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBills),
+          IconButton(
+            icon: const Icon(Icons.lock_reset_rounded),
+            tooltip: "Change Password",
+            onPressed: _handleForgotPasswordFlow, // Defined below
+          ),
           if (_isAdmin)
             IconButton(
               icon: const Icon(Icons.admin_panel_settings),
@@ -323,11 +328,7 @@ class _UserDashboardState extends State<UserDashboard> {
                         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(16),
-                          onTap: () {
-                            final s = bill.status.toLowerCase();
-                            if (s == 'approved' || s == 'paid') _viewBillImage(bill);
-                            else _showBillOptions(bill);
-                          },
+                          onTap: () => _showBillDetailsModal(bill),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
@@ -427,72 +428,143 @@ class _UserDashboardState extends State<UserDashboard> {
 
   void _showEditBillDialog(Bill bill) {
     final formKey = GlobalKey<FormState>();
-    final amountController = TextEditingController(
-        text: bill.amount.toStringAsFixed(2));
+    final amountController = TextEditingController(text: bill.amount.toStringAsFixed(2));
+    final descriptionController = TextEditingController(text: bill.billDescription ?? '');
+
     String selectedCategory = bill.reimbursementFor;
     DateTime selectedDate = bill.date;
 
     showDialog(
       context: context,
       builder: (context) {
-        XFile? newImageFile;
+        PlatformFile? newBillFile;
+        PlatformFile? newApprovalFile;
+        PlatformFile? newPaymentFile;
+
+        Future<void> pickFile(String type, void Function(PlatformFile) onPicked) async {
+          final result = await FilePicker.platform.pickFiles(
+            type: FileType.custom,
+            allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+          );
+          if (result != null) onPicked(result.files.first);
+        }
+
+        Future<void> pickFromCamera(void Function(PlatformFile) onPicked) async {
+          try {
+            final XFile? photo = await ImagePicker().pickImage(source: ImageSource.camera);
+            if (photo == null) return;
+            onPicked(PlatformFile(name: photo.name, size: 0, path: photo.path));
+          } on PlatformException catch (_) {
+            showDialog(
+              context: context,
+              builder: (_) => AlertDialog(
+                title: const Text('Camera Permission Required'),
+                content: const Text('Enable camera access from app settings.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                  ElevatedButton(onPressed: () { Navigator.pop(context); openAppSettings(); }, child: const Text('Open Settings')),
+                ],
+              ),
+            );
+          }
+        }
+
+        Widget buildFileSection({
+          required String title,
+          required String? existingPath,
+          required PlatformFile? newFile,
+          required VoidCallback onPick,
+          required VoidCallback onClear,
+          VoidCallback? onCamera,
+        }) {
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue.shade100),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+                const SizedBox(height: 8),
+                if (newFile != null) ...[
+                  Row(
+                    children: [
+                      newFile.extension?.toLowerCase() != 'pdf' && !kIsWeb && newFile.path != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.file(File(newFile.path!), width: 48, height: 48, fit: BoxFit.cover),
+                            )
+                          : Container(
+                              width: 48, height: 48,
+                              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(6)),
+                              child: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 24),
+                            ),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(newFile.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13))),
+                      IconButton(icon: const Icon(Icons.cancel, color: Colors.redAccent, size: 20), onPressed: onClear),
+                    ],
+                  ),
+                ] else if (existingPath != null && existingPath.isNotEmpty) ...[
+                  Row(
+                    children: [
+                      const Icon(Icons.check_circle, color: Colors.green, size: 18),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          existingPath.split('/').last,
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                      ),
+                      TextButton(onPressed: onPick, child: const Text("File")),
+                      if (onCamera != null)
+                        TextButton(
+                          onPressed: onCamera,
+                          child: Icon(Icons.camera_alt, size: 20, color: kPrimaryBlue),
+                        ),
+                    ],
+                  ),
+                ] else ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: onPick,
+                          icon: Icon(Icons.upload_file, color: kPrimaryBlue, size: 18),
+                          label: Text("Select File", style: TextStyle(color: kPrimaryBlue, fontSize: 13)),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        ),
+                      ),
+                      if (onCamera != null) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: onCamera,
+                            icon: Icon(Icons.camera_alt, color: kPrimaryBlue, size: 18),
+                            label: Text("Camera", style: TextStyle(color: kPrimaryBlue, fontSize: 13)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          );
+        }
+
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            Widget imagePreviewWidget() {
-              if (newImageFile != null) {
-                // ✅ Local new image (picked)
-                return InteractiveViewer(
-                  panEnabled: true,
-                  minScale: 1,
-                  maxScale: 4,
-                  child: kIsWeb
-                      ? Image.network(
-                    newImageFile!.path,
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                  )
-                      : Image.file(
-                    File(newImageFile!.path),
-                    height: 200,
-                    width: double.infinity,
-                    fit: BoxFit.contain,
-                  ),
-                );
-              } else if (bill.billImagePath.isNotEmpty) {
-                // ✅ Server image with auth
-                final url = '${ApiService.baseUrl.replaceAll(
-                    "/api", "")}/files/${bill.billImagePath}';
-                return FutureBuilder<Uint8List?>(
-                  future: _fetchImageWithAuth(url),
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SizedBox(
-                        height: 200,
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    } else if (snapshot.hasError || !snapshot.hasData) {
-                      return const Text('Could not load image');
-                    } else {
-                      return InteractiveViewer(
-                        panEnabled: true,
-                        minScale: 1,
-                        maxScale: 4,
-                        child: Image.memory(
-                          snapshot.data!,
-                          height: 200,
-                          width: double.infinity,
-                          fit: BoxFit.contain,
-                        ),
-                      );
-                    }
-                  },
-                );
-              } else {
-                return const Text('No image selected');
-              }
-            }
-
             return Dialog(
               insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
               child: ClipRRect(
@@ -504,197 +576,175 @@ class _UserDashboardState extends State<UserDashboard> {
                       borderRadius: BorderRadius.circular(24),
                       color: Colors.white.withOpacity(0.90),
                       border: Border.all(color: Colors.white.withOpacity(0.7)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 18,
-                          offset: const Offset(0, 12),
-                        ),
-                      ],
                     ),
                     padding: const EdgeInsets.all(18),
                     child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-
-                          // ✅ HEADER
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              gradient: LinearGradient(
-                                colors: [kPrimaryBlue, kPrimaryBlueDark],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: const Text(
-                              "Edit Bill",
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-
-                          const SizedBox(height: 20),
-
-                          // ✅ CATEGORY DROPDOWN (glass)
-                          DropdownButtonFormField<String>(
-                            value: selectedCategory,
-                            decoration: InputDecoration(
-                              labelText: "Category",
-                              prefixIcon: Icon(Icons.category_rounded, color: kPrimaryBlueDark),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            items: _reimbursementCategories
-                                .where((c) => c != "All")
-                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                                .toList(),
-                            onChanged: (v) => setStateDialog(() => selectedCategory = v!),
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // ✅ AMOUNT TEXTFIELD
-                          TextFormField(
-                            controller: amountController,
-                            decoration: InputDecoration(
-                              labelText: "Amount (₹)",
-                              prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
-                              filled: true,
-                              fillColor: Colors.white,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            keyboardType: TextInputType.number,
-                          ),
-
-                          const SizedBox(height: 16),
-
-                          // ✅ DATE PICKER
-                          GestureDetector(
-                            onTap: () async {
-                              final picked = await showDatePicker(
-                                context: context,
-                                initialDate: selectedDate,
-                                firstDate: DateTime(2020),
-                                lastDate: DateTime.now(),
-                              );
-                              if (picked != null) {
-                                setStateDialog(() => selectedDate = picked);
-                              }
-                            },
-                            child: InputDecorator(
-                              decoration: InputDecoration(
-                                labelText: "Date",
-                                prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlueDark),
-                                filled: true,
-                                fillColor: Colors.white,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                              ),
-                              child: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
-                            ),
-                          ),
-
-                          const SizedBox(height: 10),
-
-                          // ✅ IMAGE PREVIEW GLASS BOX
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(16),
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
+                      child: Form(
+                        key: formKey,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // HEADER
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: Colors.white,
-                                border: Border.all(color: Colors.grey.shade300),
                                 borderRadius: BorderRadius.circular(16),
+                                gradient: LinearGradient(colors: [kPrimaryBlue, kPrimaryBlueDark]),
                               ),
-                              child: imagePreviewWidget(),
+                              child: const Text("Edit Bill", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.white)),
                             ),
-                          ),
+                            const SizedBox(height: 20),
 
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: IconButton(
-                              icon: Icon(Icons.image_rounded, size: 32, color: kPrimaryBlue),
-                              onPressed: () {
-                                _pickBillImage(
-                                  onPicked: (file) {
-                                    setStateDialog(() => newImageFile = file);
-                                  },
-                                );
+                            // CATEGORY
+                            DropdownButtonFormField<String>(
+                              value: selectedCategory,
+                              decoration: InputDecoration(
+                                labelText: "Category",
+                                prefixIcon: Icon(Icons.category_rounded, color: kPrimaryBlueDark),
+                                filled: true, fillColor: Colors.white,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              items: _reimbursementCategories.where((c) => c != "All").map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                              onChanged: (v) {
+                                setStateDialog(() {
+                                  selectedCategory = v!;
+                                  if (selectedCategory == 'Parking') {
+                                    descriptionController.clear();
+                                    newApprovalFile = null;
+                                    newPaymentFile = null;
+                                  }
+                                });
                               },
                             ),
-                          ),
+                            const SizedBox(height: 16),
 
-                          const SizedBox(height: 10),
-
-                          // ✅ BUTTONS (Blue + shaped)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              TextButton(
-                                child: const Text(
-                                  "Cancel",
-                                  style: TextStyle(fontSize: 16),
+                            if (selectedCategory != 'Parking') ...[
+                              TextFormField(
+                                controller: descriptionController,
+                                decoration: InputDecoration(
+                                  labelText: "Description",
+                                  prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
+                                  filled: true, fillColor: Colors.white,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                                 ),
-                                onPressed: () => Navigator.pop(context),
+                                validator: (v) => (v == null || v.isEmpty) ? 'Description required' : null,
                               ),
+                              const SizedBox(height: 16),
+                            ],
 
-                              const SizedBox(width: 12),
+                            // AMOUNT
+                            TextFormField(
+                              controller: amountController,
+                              decoration: InputDecoration(
+                                labelText: "Amount (₹)",
+                                prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
+                                filled: true, fillColor: Colors.white,
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                              ),
+                              keyboardType: TextInputType.number,
+                              validator: (v) => (v == null || double.tryParse(v) == null) ? 'Invalid amount' : null,
+                            ),
+                            const SizedBox(height: 16),
 
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: kPrimaryBlueDark,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                            // DATE
+                            GestureDetector(
+                              onTap: () async {
+                                final picked = await showDatePicker(context: context, initialDate: selectedDate, firstDate: DateTime(2020), lastDate: DateTime.now());
+                                if (picked != null) setStateDialog(() => selectedDate = picked);
+                              },
+                              child: InputDecorator(
+                                decoration: InputDecoration(
+                                  labelText: "Date",
+                                  prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlueDark),
+                                  filled: true, fillColor: Colors.white,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                                 ),
-                                onPressed: () async {
+                                child: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
 
-                                  final prefs = await SharedPreferences.getInstance();
-                                  final password = prefs.getString('password');
+                            // BILL FILE
+                            buildFileSection(
+                              title: "Bill / Receipt",
+                              existingPath: bill.billImagePath,
+                              newFile: newBillFile,
+                              onPick: () => pickFile('bill', (f) => setStateDialog(() => newBillFile = f)),
+                              onClear: () => setStateDialog(() => newBillFile = null),
+                              onCamera: () => pickFromCamera((f) => setStateDialog(() => newBillFile = f)),
+                            ),
 
-
-                                  final success = await ApiService.editBill(
-                                    employeeId: _employeeId.toString(),
-                                    password: password!,
-                                    billId: bill.billId,
-                                    reimbursementFor: selectedCategory,
-                                    amount: double.parse(amountController.text),
-                                    date: selectedDate,
-                                    billImage: newImageFile,
-                                  );
-
-                                  Navigator.pop(context);
-                                  if (success) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text("Bill updated!")),
-                                    );
-                                    _loadBills();
-                                  }
-                                },
-                                child: Text(
-                                  "Save",
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                                ),
+                            // APPROVAL MAIL + PAYMENT PROOF (non-parking only)
+                            if (selectedCategory != 'Parking') ...[
+                              const SizedBox(height: 12),
+                              buildFileSection(
+                                title: "Approval Mail",
+                                existingPath: bill.approvalMailPath,
+                                newFile: newApprovalFile,
+                                onPick: () => pickFile('approval', (f) => setStateDialog(() => newApprovalFile = f)),
+                                onClear: () => setStateDialog(() => newApprovalFile = null),
+                              ),
+                              const SizedBox(height: 12),
+                              buildFileSection(
+                                title: "Payment Proof",
+                                existingPath: bill.paymentProofPath,
+                                newFile: newPaymentFile,
+                                onPick: () => pickFile('payment', (f) => setStateDialog(() => newPaymentFile = f)),
+                                onClear: () => setStateDialog(() => newPaymentFile = null),
                               ),
                             ],
-                          ),
-                        ],
+
+                            const SizedBox(height: 20),
+
+                            // BUTTONS
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(child: const Text("Cancel"), onPressed: () => Navigator.pop(context)),
+                                const SizedBox(width: 12),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: kPrimaryBlueDark, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)), padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14)),
+                                  onPressed: () async {
+                                    if (!formKey.currentState!.validate()) return;
+
+                                    final prefs = await SharedPreferences.getInstance();
+                                    final password = prefs.getString('password');
+
+                                    // Compress new files before upload (PDFs pass through unchanged)
+                                    final File? compressedBill = await CompressionService.compressNullable(
+                                        newBillFile?.path != null ? File(newBillFile!.path!) : null);
+                                    final File? compressedApproval = await CompressionService.compressNullable(
+                                        newApprovalFile?.path != null ? File(newApprovalFile!.path!) : null);
+                                    final File? compressedPayment = await CompressionService.compressNullable(
+                                        newPaymentFile?.path != null ? File(newPaymentFile!.path!) : null);
+
+                                    final success = await ApiService.editBill(
+                                      employeeId: _employeeId.toString(),
+                                      password: password!,
+                                      billId: bill.billId,
+                                      reimbursementFor: selectedCategory,
+                                      description: descriptionController.text.trim(),
+                                      amount: double.parse(amountController.text),
+                                      date: selectedDate,
+                                      billImage: compressedBill,
+                                      approvalMail: compressedApproval,
+                                      paymentProof: compressedPayment,
+                                    );
+
+                                    Navigator.pop(context);
+                                    if (success) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Bill updated!")));
+                                      _loadBills();
+                                    }
+                                  },
+                                  child: const Text("Save", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -705,133 +755,6 @@ class _UserDashboardState extends State<UserDashboard> {
         );
       },
     );
-  }
-
-  Future<void> _pickBillImage({required void Function(XFile file) onPicked}) async {
-    final picker = ImagePicker();
-
-    if (kIsWeb) {
-      final image = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-      );
-      if (image != null) onPicked(image);
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) {
-        return SafeArea(
-          child: Wrap(
-            children: [
-              ListTile(
-                leading: const Icon(Icons.camera_alt_rounded),
-                title: const Text('Camera'),
-                onTap: () async {
-                  Navigator.pop(context);
-
-                  try {
-                    final image = await picker.pickImage(
-                      source: ImageSource.camera,
-                      imageQuality: 85,
-                    );
-                    if (image != null) onPicked(image);
-                  } on PlatformException catch (e) {
-                    if (!context.mounted) return;
-
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('Camera Permission Required'),
-                        content: const Text(
-                          'Camera access is required to capture bill images. '
-                              'Please enable it from app settings.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Cancel'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              openAppSettings();
-                            },
-                            child: const Text('Open Settings'),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_rounded),
-                title: const Text('Gallery'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  try {
-                    final image = await picker.pickImage(
-                      source: ImageSource.gallery,
-                      imageQuality: 85,
-                    );
-                    if (image != null) onPicked(image);
-                  } on PlatformException catch (e) {
-                    if (!context.mounted) return;
-
-                    showDialog(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('Gallery Permission Required'),
-                        content: const Text(
-                          'Gallery access is required to select bill images. '
-                              'Please enable it from app settings.',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(context),
-                            child: const Text('Cancel'),
-                          ),
-                          ElevatedButton(
-                            onPressed: () {
-                              Navigator.pop(context);
-                              openAppSettings();
-                            },
-                            child: const Text('Open Settings'),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-                },
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Future<Uint8List?> _fetchImageWithAuth(String url) async {
-    final prefs = await SharedPreferences.getInstance();
-    final employeeId = prefs.getInt('employee_id')?.toString() ?? '';
-    final password = prefs.getString('password') ?? '';
-
-    final response = await http.get(
-      Uri.parse(url),
-      headers: ApiService.getAuthHeaders(employeeId, password),
-    );
-
-    if (response.statusCode == 200) {
-      return response.bodyBytes;
-    } else {
-      debugPrint('Failed to load image: ${response.statusCode}');
-      return null;
-    }
   }
 
   void _showDeleteConfirmationDialog(Bill bill) {
@@ -867,84 +790,6 @@ class _UserDashboardState extends State<UserDashboard> {
           ),
         ],
       ),
-    );
-  }
-
-  void _showBillOptions(Bill bill) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-
-                  // ✅ REJECTED REMARK (Only if rejected)
-                  if (bill.status.toLowerCase() == 'rejected' && bill.remarks != null)
-                    Container(
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(bottom: 12, left: 16, right: 16),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.info_outline, color: Colors.redAccent, size: 20),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              bill.remarks!,
-                              style: const TextStyle(
-                                color: Colors.redAccent,
-                                fontSize: 14,
-                                fontStyle: FontStyle.italic,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  // ✅ EDIT BILL
-                  ListTile(
-                    leading: Icon(Icons.edit_rounded, color: kPrimaryBlueDark),
-                    title: const Text("Edit Bill", style: TextStyle(fontSize: 16)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _showEditBillDialog(bill);
-                    },
-                  ),
-
-                  // ✅ DELETE BILL
-                  ListTile(
-                    leading: const Icon(Icons.delete_rounded, color: Colors.red),
-                    title: const Text("Delete Bill", style: TextStyle(fontSize: 16)),
-                    onTap: () {
-                      Navigator.pop(context);
-                      _showDeleteConfirmationDialog(bill);
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
     );
   }
 
@@ -1074,46 +919,42 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  void _viewBillImage(Bill bill) async {
+  void _viewDocument(String filePath, String title) async {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('employee_id')?.toString() ?? '';
     final password = prefs.getString('password') ?? '';
 
-    final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
+    final url = '${ApiService.baseUrl}/files/$filePath';
+    final isPdf = filePath.toLowerCase().endsWith('.pdf');
 
-    Uint8List? bytes;
-
-    // ✅ Try cache first
-    if (_imageCache.containsKey(imageUrl)) {
-      bytes = _imageCache[imageUrl]!;
-    } else {
-      final response = await http.get(
-        Uri.parse(imageUrl),
-        headers: ApiService.getAuthHeaders(userId, password),
+    final response = await http.get(Uri.parse(url), headers: ApiService.getAuthHeaders(userId, password));
+    if (response.statusCode != 200) {
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Error'),
+          content: const Text('Could not load document.'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+        ),
       );
-
-      if (response.statusCode != 200) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('Error'),
-            content: const Text('Could not load image.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
-              )
-            ],
-          ),
-        );
-        return;
-      }
-
-      bytes = response.bodyBytes;
-      _imageCache[imageUrl] = bytes;
+      return;
     }
 
-    // ✅ MODERN VIEWER
+    final bytes = response.bodyBytes;
+
+    if (!mounted) return;
+
+    if (isPdf) {
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/${filePath.split('/').last}');
+      await tempFile.writeAsBytes(bytes);
+      await OpenFilex.open(tempFile.path);
+      return;
+    }
+
+    // Image viewer
+    _imageCache[url] = bytes;
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -1132,7 +973,6 @@ class _UserDashboardState extends State<UserDashboard> {
                 color: Colors.white,
                 child: Column(
                   children: [
-                    // ✅ Top Bar
                     Container(
                       height: 56,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1149,16 +989,9 @@ class _UserDashboardState extends State<UserDashboard> {
                             icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
                             onPressed: () => Navigator.pop(context),
                           ),
-                          const Expanded(
+                          Expanded(
                             child: Center(
-                              child: Text(
-                                "Bill Image",
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white
-                                ),
-                              ),
+                              child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white)),
                             ),
                           ),
                           IconButton(
@@ -1168,9 +1001,7 @@ class _UserDashboardState extends State<UserDashboard> {
                         ],
                       ),
                     ),
-
                     const Divider(height: 1),
-
                     Expanded(
                       child: Container(
                         color: Colors.black,
@@ -1178,12 +1009,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           panEnabled: true,
                           minScale: 1,
                           maxScale: 4,
-                          child: Center(
-                            child: Image.memory(
-                              bytes!,
-                              fit: BoxFit.contain,
-                            ),
-                          ),
+                          child: Center(child: Image.memory(bytes, fit: BoxFit.contain)),
                         ),
                       ),
                     ),
@@ -1194,15 +1020,10 @@ class _UserDashboardState extends State<UserDashboard> {
           ),
         );
       },
-
-      // ✅ Fade + Scale Animation
       transitionBuilder: (_, anim, __, child) {
         return FadeTransition(
           opacity: anim,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.95, end: 1.0).animate(anim),
-            child: child,
-          ),
+          child: ScaleTransition(scale: Tween<double>(begin: 0.95, end: 1.0).animate(anim), child: child),
         );
       },
     );
@@ -1224,9 +1045,365 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
+  Future<void> _handleForgotPasswordFlow() async {
+    final empId = _employeeId.toString();
+    bool isSending = false;
+    String? apiError;
+
+    // Step 1: Confirm and Send OTP
+    bool otpSent = await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('Reset Password'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Send a password reset OTP to your registered email for Employee ID: $empId?'),
+                  if (apiError != null) ...[
+                    const SizedBox(height: 12),
+                    Text(apiError!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                  ]
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSending ? null : () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: isSending ? null : () async {
+                    setStateDialog(() { isSending = true; apiError = null; });
+
+                    // Using existing ApiService logic
+                    String otpStatus = await ApiService.sendOtp(empId, '', false);
+
+                    setStateDialog(() => isSending = false);
+                    if (otpStatus == "OTP sent.") {
+                      Navigator.pop(context, true);
+                    } else {
+                      setStateDialog(() => apiError = "Failed: $otpStatus");
+                    }
+                  },
+                  child: isSending
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Text('Send OTP'),
+                ),
+              ],
+            );
+          }
+      ),
+    ) ?? false;
+
+    if (!otpSent) return;
+
+    // Step 2: Verify OTP
+    bool isVerified = await _showOtpVerificationDialog(empId, false);
+    if (!isVerified) return;
+
+    // Step 3: Set New Password
+    final newPasswordController = TextEditingController();
+    final newPasswordFormKey = GlobalKey<FormState>();
+    bool obscureNewPassword = true;
+
+    bool resetSuccess = await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              title: const Text('New Password'),
+              content: Form(
+                key: newPasswordFormKey,
+                child: TextFormField(
+                  controller: newPasswordController,
+                  obscureText: obscureNewPassword,
+                  decoration: InputDecoration(
+                    labelText: 'Enter New Password',
+                    suffixIcon: IconButton(
+                      icon: Icon(obscureNewPassword ? Icons.visibility_off : Icons.visibility),
+                      onPressed: () => setStateDialog(() => obscureNewPassword = !obscureNewPassword),
+                    ),
+                  ),
+                  validator: (v) => v!.isEmpty ? 'Required' : null,
+                ),
+              ),
+              actions: [
+                ElevatedButton(
+                  onPressed: () async {
+                    if (newPasswordFormKey.currentState!.validate()) {
+                      bool success = await ApiService.resetPassword(empId, newPasswordController.text.trim());
+                      Navigator.pop(context, success);
+                    }
+                  },
+                  child: const Text('Update Password'),
+                ),
+              ],
+            );
+          }
+      ),
+    ) ?? false;
+
+    if (resetSuccess) {
+      // Crucial: Update the stored password in SharedPreferences so future API calls don't fail
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('password', newPasswordController.text.trim());
+
+      _showSuccessDialog('Password updated successfully!');
+    } else {
+      _showErrorDialog('Failed to update password.');
+    }
+  }
+
+  Future<bool> _showOtpVerificationDialog(String empId, bool signUp) async {
+    final otpController = TextEditingController();
+    bool isVerified = false;
+    bool isVerifying = false;
+    String? inlineError;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setStateDialog) {
+          return AlertDialog(
+            title: const Text('Verify OTP'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Enter the OTP sent to your email.'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: otpController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'OTP',
+                    errorText: inlineError,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isVerifying ? null : () async {
+                  setStateDialog(() { isVerifying = true; inlineError = null; });
+                  isVerified = await ApiService.verifyOtp(empId, otpController.text.trim(), signUp);
+                  setStateDialog(() => isVerifying = false);
+
+                  if (isVerified) {
+                    Navigator.pop(context);
+                  } else {
+                    setStateDialog(() => inlineError = 'Invalid OTP');
+                  }
+                },
+                child: isVerifying
+                    ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('Verify'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    return isVerified;
+  }
+
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Success'),
+        content: Text(message),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+      ),
+    );
+  }
+
+  void _showBillDetailsModal(Bill bill) {
+    if (bill.billDescription != null) {
+    }
+    final s = bill.status.toLowerCase();
+    final bool canEdit = (s == 'pending' || s == 'rejected');
+    final bool canDelete = (s != 'paid'); // Paid bills cannot be deleted
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.7,
+          maxChildSize: 0.9,
+          minChildSize: 0.5,
+          builder: (_, scrollController) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: Column(
+              children: [
+                // Pull Handle
+                Container(
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  height: 4, width: 40,
+                  decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+                ),
+
+                Expanded(
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(20),
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _statusPill(bill.status),
+                          Text('₹${bill.amount.toStringAsFixed(2)}',
+                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kPrimaryBlueDark)),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+
+                      _detailRow(Icons.category, "Category", bill.reimbursementFor),
+                      _detailRow(Icons.calendar_today, "Bill Date", DateFormat('dd MMM yyyy').format(bill.date)),
+                      _detailRow(Icons.access_time, "Submitted On", DateFormat('dd MMM yyyy, hh:mm a').format(bill.createdAt!)),
+
+                      if (bill.reimbursementFor != 'Parking' && bill.billDescription != null)
+                        _detailRow(Icons.description, "Description", bill.billDescription!),
+
+                      if (bill.remarks != null && s == 'rejected')
+                        _detailRow(Icons.comment, "Rejection Remarks", bill.remarks!, isError: true),
+
+                      const SizedBox(height: 30),
+
+                      // VIEW DOCUMENTS
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          icon: const Icon(Icons.receipt_long),
+                          label: const Text("View Bill Receipt"),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: kPrimaryBlue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.all(16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: () => _viewDocument(bill.billImagePath, "Bill Receipt"),
+                        ),
+                      ),
+
+                      if (bill.reimbursementFor != 'Parking') ...[
+                        if (bill.approvalMailPath != null && bill.approvalMailPath!.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.mark_email_read),
+                              label: const Text("View Approval Mail"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.teal,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: () => _viewDocument(bill.approvalMailPath!, "Approval Mail"),
+                            ),
+                          ),
+                        ],
+                        if (bill.paymentProofPath != null && bill.paymentProofPath!.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.payment),
+                              label: const Text("View Payment Proof"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.purple,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.all(16),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: () => _viewDocument(bill.paymentProofPath!, "Payment Proof"),
+                            ),
+                          ),
+                        ],
+                      ],
+
+                      const SizedBox(height: 12),
+
+                      // ✅ ACTION BUTTONS Row
+                      Row(
+                        children: [
+                          if (canEdit)
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.edit),
+                                label: const Text("Edit"),
+                                onPressed: () { Navigator.pop(context); _showEditBillDialog(bill); },
+                                style: OutlinedButton.styleFrom(padding: const EdgeInsets.all(16)),
+                              ),
+                            ),
+                          if (canEdit) const SizedBox(width: 12),
+
+                          if (canDelete)
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                label: const Text("Delete", style: TextStyle(color: Colors.red)),
+                                onPressed: () { Navigator.pop(context); _showDeleteConfirmationDialog(bill); },
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.red),
+                                  padding: const EdgeInsets.all(16),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(IconData icon, String label, String value, {bool isError = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: isError ? Colors.red : Colors.grey[600]),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                Text(value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600,
+                    color: isError ? Colors.red : Colors.black87)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     Navigator.pushReplacementNamed(context, '/login');
   }
 }
+

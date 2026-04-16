@@ -1,15 +1,15 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/bill_model.dart';
 import '../models/user_model.dart';
 import 'package:intl/intl.dart';
-import 'package:image_picker/image_picker.dart';
 
 class ApiService {
   static const String baseUrl = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://localhost:8080'
+      defaultValue: 'http://192.168.1.3:8080'
   );
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
@@ -39,13 +39,14 @@ class ApiService {
     }
   }
 
-  static Future<bool> signUp(String employeeId, String name, String password, bool isAdmin) async {
+  static Future<bool> signUp(String employeeId, String name, String email, String password, bool isAdmin) async {
     final response = await http.post(
       Uri.parse('$baseUrl/users'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'employeeId': int.tryParse(employeeId) ?? 0,
         'name': name,
+        'email': email,
         'password': password,
         'admin': isAdmin,
       }),
@@ -55,7 +56,7 @@ class ApiService {
 
   static Future<List<User>> fetchUsers(String adminId, String adminPassword) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/users'),
+      Uri.parse('$baseUrl/admin/users'),
       headers: getAuthHeaders(adminId, adminPassword),
     );
 
@@ -67,30 +68,26 @@ class ApiService {
     }
   }
 
-  static Future<bool> editUser({required String adminId,
-                                required String adminPassword,
-                                required int employeeIdToEdit,
-                                required String newName,
-                                required String newPassword,
-                                required bool isApproved}) async {
+  static Future<String> editUser({required String adminId, required String adminPassword, required int employeeIdToEdit, required String name, required String email, required bool isApproved}) async {
     final response = await http.put(
-      Uri.parse('$baseUrl/users/$employeeIdToEdit'),
+      Uri.parse('$baseUrl/admin/users/$employeeIdToEdit'),
       headers: getAuthHeaders(adminId, adminPassword),
       body: jsonEncode({
         'employeeId': employeeIdToEdit,
-        'name': newName,
-        'password': newPassword,
+        'name': name,
+        'email': email,
         'approved': isApproved,
       }),
     );
-    return response.statusCode == 200;
+    if (response.statusCode == 200) return "true";
+    return response.body;
   }
 
   static Future<bool> deleteUser({required String adminId,
                                   required String adminPassword,
                                   required int employeeIdToDelete}) async {
     final response = await http.delete(
-      Uri.parse('$baseUrl/users/$employeeIdToDelete'),
+      Uri.parse('$baseUrl/admin/users/$employeeIdToDelete'),
       headers: getAuthHeaders(adminId, adminPassword),
     );
     return response.statusCode == 200;
@@ -99,10 +96,10 @@ class ApiService {
   // Bills
   static Future<bool> addBill({required int employeeId,
                                required String password,
-                               required String reimbursementFor,
+                               required String reimbursementFor, String? description,
                                required double amount,
                                required DateTime date,
-                               required XFile billImage}) async {
+                               required File billImage, File? approvalMail, File? paymentProof}) async {
 
     var request = http.MultipartRequest(
       'POST',
@@ -113,6 +110,7 @@ class ApiService {
     request.headers['Authorization'] = basicAuth;
 
     request.fields['reimbursementFor'] = reimbursementFor;
+    if (description != null) request.fields['description'] = description;
     request.fields['amount'] = amount.toString();
     request.fields['date'] = DateFormat('yyyy-MM-dd').format(date);
 
@@ -121,13 +119,35 @@ class ApiService {
       request.files.add(http.MultipartFile.fromBytes(
         'billImage',
         await billImage.readAsBytes(),
-        filename: billImage.name,
+        filename: billImage.path.split('/').last,
       ));
     } else {
       // For Mobile: Stream directly from the file path
       request.files.add(
         await http.MultipartFile.fromPath('billImage', billImage.path),
       );
+    }
+    if (approvalMail != null) {
+      if (kIsWeb) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'approvalMail',
+          await approvalMail.readAsBytes(),
+          filename: approvalMail.path.split('/').last,
+        ));
+      } else {
+        request.files.add(await http.MultipartFile.fromPath('approvalMail', approvalMail.path));
+      }
+    }
+    if (paymentProof != null) {
+      if (kIsWeb) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'paymentProof',
+          await paymentProof.readAsBytes(),
+          filename: paymentProof.path.split('/').last,
+        ));
+      } else {
+        request.files.add(await http.MultipartFile.fromPath('paymentProof', paymentProof.path));
+      }
     }
 
     var response = await request.send();
@@ -151,7 +171,7 @@ class ApiService {
 
   static Future<List<Bill>> getAllBillsAsAdmin(String employeeId, String password) async {
     final response = await http.get(
-      Uri.parse('$baseUrl/bills'),
+      Uri.parse('$baseUrl/admin/bills'),
       headers: getAuthHeaders(employeeId, password),
     );
 
@@ -171,10 +191,12 @@ class ApiService {
     }
 
     final response = await http.put(
-      Uri.parse('$baseUrl/bills/$billId/status'),
+      Uri.parse('$baseUrl/admin/bills/$billId/status'),
       headers: getAuthHeaders(employeeId.toString(), password),
       body: jsonEncode(body),
     );
+
+    print("response = " + response.statusCode.toString());
 
 
     if (response.statusCode == 200) {
@@ -184,7 +206,7 @@ class ApiService {
     }
   }
 
-  static Future<bool> editBill({required String employeeId, required String password, required int billId, required String reimbursementFor, required double amount, required DateTime date, XFile? billImage}) async {
+  static Future<bool> editBill({required String employeeId, required String password, required int billId, required String reimbursementFor, String? description, required double amount, required DateTime date, File? billImage, File? approvalMail, File? paymentProof}) async {
     var request = http.MultipartRequest(
       'PUT',
       Uri.parse('$baseUrl/users/$employeeId/bills/$billId'),
@@ -194,23 +216,43 @@ class ApiService {
     request.headers['Authorization'] = basicAuth;
 
     request.fields['reimbursementFor'] = reimbursementFor;
+    if (description != null) request.fields['description'] = description;
     request.fields['amount'] = amount.toString();
     request.fields['date'] = DateFormat('yyyy-MM-dd').format(date);
 
     if (billImage != null) {
       if (kIsWeb) {
-        // For Web: Read as bytes and send
         request.files.add(http.MultipartFile.fromBytes(
           'billImage',
           await billImage.readAsBytes(),
-          filename: billImage.name, // Ensure the server gets a filename
+          filename: billImage.path.split('/').last,
         ));
       } else {
-        // For Mobile: Stream directly from the file path
-        request.files.add(await http.MultipartFile.fromPath(
-            'billImage',
-            billImage.path
+        request.files.add(await http.MultipartFile.fromPath('billImage', billImage.path));
+      }
+    }
+
+    if (approvalMail != null) {
+      if (kIsWeb) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'approvalMail',
+          await approvalMail.readAsBytes(),
+          filename: approvalMail.path.split('/').last,
         ));
+      } else {
+        request.files.add(await http.MultipartFile.fromPath('approvalMail', approvalMail.path));
+      }
+    }
+
+    if (paymentProof != null) {
+      if (kIsWeb) {
+        request.files.add(http.MultipartFile.fromBytes(
+          'paymentProof',
+          await paymentProof.readAsBytes(),
+          filename: paymentProof.path.split('/').last,
+        ));
+      } else {
+        request.files.add(await http.MultipartFile.fromPath('paymentProof', paymentProof.path));
       }
     }
 
@@ -225,6 +267,39 @@ class ApiService {
     final response = await http.delete(
       Uri.parse('$baseUrl/users/$employeeId/bills/$billId'),
       headers: getAuthHeaders(employeeId, password),
+    );
+    return response.statusCode == 200;
+  }
+
+  // OTP
+  static Future<String> sendOtp(String employeeId, String email, bool signUp) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/users/$employeeId/send-otp'),
+      body: {
+        'email': email,
+        'signUp': signUp.toString(),
+      },
+    );
+    return response.body;
+  }
+
+  static Future<bool> verifyOtp(String employeeId, String otp, bool signUp) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/users/$employeeId/verify-otp'),
+      body: {
+        'otp': otp,
+        'signUp': signUp.toString(),
+      },
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> resetPassword(String employeeId, String newPassword) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/users/$employeeId/update-password'),
+      body: {
+        'newPassword': newPassword,
+      },
     );
     return response.statusCode == 200;
   }

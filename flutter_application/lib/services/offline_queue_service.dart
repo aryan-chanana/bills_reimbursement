@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
@@ -42,9 +41,12 @@ class OfflineQueueService {
         employeeId: employeeId,
         password: password,
         reimbursementFor: data["category"],
+        description: data["description"],
         amount: data["amount"],
         date: DateTime.parse(data["date"]),
         billImage: data["imagePath"],
+        approvalMail: data["approvalMail"],
+        paymentProof: data["paymentProof"]
       );
 
       if (!success) {
