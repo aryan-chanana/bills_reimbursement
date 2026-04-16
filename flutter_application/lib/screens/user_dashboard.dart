@@ -1406,4 +1406,3 @@ class _UserDashboardState extends State<UserDashboard> {
     Navigator.pushReplacementNamed(context, '/login');
   }
 }
-

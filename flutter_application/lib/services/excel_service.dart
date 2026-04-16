@@ -10,67 +10,62 @@ class ExcelService {
 
   ExcelService._init();
 
-  Future<void> generateBillsReport(List<Bill> bills,
-      List<User> employees) async {
+  Future<void> generateBillsReport(List<Bill> bills, List<User> employees) async {
     var excel = Excel.createExcel();
-
-    // String defaultSheet = excel.tables.keys.first;
-    // print("Default sheet name: $defaultSheet");
-
-    // // Rename it to BillsReport
-    // try {
-    //   excel.rename(defaultSheet, 'BillsReport');
-    //   print("Renamed successfully");
-    // } catch (e) {
-    //   print("Rename error: $e");
-    // }
-
     final sheet = excel['BillsReport'];
 
-    List<String> headers = [
-      'S.No', 'Employee ID', 'Employee Name', 'Reimbursement For', 'Amount (₹)',
-      'Date', 'Status', 'Submitted Date',
-    ];
-    sheet.appendRow(headers);
+    // ── Header row ────────────────────────────────────────────────
+    sheet.appendRow([
+      'S.No',
+      'Employee ID',
+      'Employee Name',
+      'Category',
+      'Description',
+      'Amount (₹)',
+      'Bill Date',
+      'Submitted Date',
+      'Status',
+      'Remarks',
+      'Bill Receipt',
+      'Approval Mail',
+      'Payment Proof',
+    ]);
 
+    // ── Data rows ─────────────────────────────────────────────────
     for (int i = 0; i < bills.length; i++) {
       final bill = bills[i];
       final employee = employees.firstWhere(
-              (emp) => emp.employeeId == bill.employeeId,
-          orElse: () =>
-              User(employeeId: bill.employeeId, name: 'Unknown', password: '')
+        (emp) => emp.employeeId == bill.employeeId,
+        orElse: () => User(employeeId: bill.employeeId, name: 'Unknown', password: ''),
       );
 
-      List<dynamic> rowData = [
-        i + 1,
-        bill.employeeId,
-        employee.name,
-        bill.reimbursementFor,
-        bill.amount,
-        DateFormat('dd/MM/yyyy').format(bill.date),
-        bill.status.toUpperCase(),
-        DateFormat('dd/MM/yyyy').format(bill.createdAt!),
-      ];
-      sheet.appendRow(rowData);
+      sheet.appendRow([
+        i + 1,                                                          // S.No
+        bill.employeeId,                                                // Employee ID
+        employee.name,                                                  // Employee Name
+        bill.reimbursementFor,                                          // Category
+        bill.billDescription ?? '—',                                    // Description
+        bill.amount,                                                    // Amount
+        DateFormat('dd/MM/yyyy').format(bill.date),                     // Bill Date
+        bill.createdAt != null
+            ? DateFormat('dd/MM/yyyy').format(bill.createdAt!)
+            : '—',                                                      // Submitted Date
+        bill.status.toUpperCase(),                                      // Status
+        bill.remarks ?? '—',                                            // Remarks
+        _docLabel(bill.billImagePath),                                  // Bill Receipt
+        _docLabel(bill.approvalMailPath),                               // Approval Mail
+        _docLabel(bill.paymentProofPath),                               // Payment Proof
+      ]);
     }
 
+    // Delete the default empty sheet Excel creates
     try {
-      // Unsupported operation: Cannot remove from an unmodifiable list
-      // look what caused above statement in delete method
-      // somewhere in delete or rename method, code is break hence returning above method
-      // and we going in catch clause but until then our sheet has already been deleted/renamed
       excel.delete('Sheet1');
-      print("Deleted successfully");
-    }
-    catch (e) {
-      print("Not deleted :: $e");
-    }
+    } catch (_) {}
 
     final fileBytes = excel.save();
-
     if (fileBytes != null) {
-      String fileName = 'Bills_Report_${DateFormat('dd-MM-yyyy').format(
-          DateTime.now())}';
+      final fileName = 'Bills_Report_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
       await FileSaver.instance.saveAs(
         name: fileName,
         bytes: Uint8List.fromList(fileBytes),
@@ -78,5 +73,11 @@ class ExcelService {
         mimeType: MimeType.microsoftExcel,
       );
     }
+  }
+
+  /// Returns the filename from a stored path, or '—' if absent.
+  static String _docLabel(String? path) {
+    if (path == null || path.isEmpty) return '—';
+    return path.split('/').last;
   }
 }

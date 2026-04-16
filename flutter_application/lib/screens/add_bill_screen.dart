@@ -14,6 +14,14 @@ import '../services/ocr_service.dart';
 import '../services/offline_queue_service.dart';
 import 'package:flutter/foundation.dart';
 
+/// Holds data for a single entry in batch mode.
+class _BatchEntry {
+  DateTime date = DateTime.now();
+  final TextEditingController amountController = TextEditingController();
+  PlatformFile? billFile;
+  PlatformFile? paymentProofFile; // each entry has its own payment receipt
+}
+
 class AddBillScreen extends StatefulWidget {
   final int employeeId;
 
@@ -27,19 +35,24 @@ class _AddBillScreenState extends State<AddBillScreen> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   Color kPrimaryBlue = const Color(0xFF2196F3);
   Color kPrimaryBlueDark = const Color(0xFF1E3A8A);
   Color kBgTop = const Color(0xFFE3F2FD);
   Color kBgBottom = const Color(0xFFBBDEFB);
 
-  String _selectedCategory = 'Travel';
+  String _selectedCategory = 'Parking';
   DateTime _selectedDate = DateTime.now();
 
-  // ✅ Replaced _imageFile with three PlatformFiles for PDF/Image support
+  // Single mode files
   PlatformFile? _billFile;
   PlatformFile? _approvalMailFile;
   PlatformFile? _paymentProofFile;
+
+  // Batch mode
+  bool _batchMode = false;
+  final List<_BatchEntry> _batchEntries = [];
 
   bool _isLoading = false;
   bool _isAnalyzing = false;
@@ -113,9 +126,9 @@ class _AddBillScreenState extends State<AddBillScreen> {
         ),
         child: Stack(
           children: [
-            // ✅ MAIN CONTENT
             SafeArea(
-                child : SingleChildScrollView(
+                child: SingleChildScrollView(
+                  controller: _scrollController,
                   padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
                   physics: const ClampingScrollPhysics(),
                   child: Form(
@@ -123,18 +136,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                     child: Column(
                       children: [
 
-                        // 1. PRIMARY BILL UPLOAD
-                        _buildFileUploadSection(
-                          title: "Bill / Receipt",
-                          file: _billFile,
-                          onPick: () => _pickFile('bill'),
-                          onClear: () => setState(() => _billFile = null),
-                          allowCamera: true, // Let them use camera for the main receipt
-                        ),
-
-                        const SizedBox(height: 20),
-
-                        // 2. CATEGORY & DETAILS FORM
+                        // 1. CATEGORY + BATCH TOGGLE (always on top)
                         glassCard(
                           child: Column(
                             children: [
@@ -152,7 +154,6 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                 onChanged: (v) {
                                   setState(() {
                                     _selectedCategory = v!;
-                                    // Clear conditional fields if Parking is selected
                                     if (_selectedCategory == 'Parking') {
                                       _descriptionController.clear();
                                       _approvalMailFile = null;
@@ -162,84 +163,205 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                 },
                               ),
 
-                              if (_selectedCategory != 'Parking') ...[
-                                const SizedBox(height: 16),
-                                TextFormField(
-                                  controller: _descriptionController,
-                                  decoration: InputDecoration(
-                                    labelText: 'Description',
-                                    hintText: 'Enter bill details',
-                                    prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                              const SizedBox(height: 12),
+
+                              Row(
+                                children: [
+                                  Icon(Icons.layers_rounded, color: kPrimaryBlue, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    "Submit multiple bills",
+                                    style: TextStyle(fontSize: 15, color: kPrimaryBlueDark, fontWeight: FontWeight.w600),
                                   ),
-                                  validator: (value) {
-                                    if (_selectedCategory != 'Parking' && (value == null || value.isEmpty)) {
-                                      return 'Please enter a description';
-                                    }
-                                    return null;
-                                  },
-                                ),
-                              ],
-
-                              const SizedBox(height: 16),
-
-                              TextFormField(
-                                controller: _amountController,
-                                decoration: InputDecoration(
-                                  labelText: 'Amount (₹)',
-                                  prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
-                                  filled: true,
-                                  fillColor: Colors.white,
-                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                                ),
-                                keyboardType: TextInputType.number,
-                                validator: (value) => (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0)
-                                    ? 'Enter valid amount'
-                                    : null,
-                              ),
-
-                              const SizedBox(height: 16),
-
-                              InkWell(
-                                onTap: _selectDate,
-                                child: InputDecorator(
-                                  decoration: InputDecoration(
-                                    labelText: 'Date of Bill',
-                                    prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                  const Spacer(),
+                                  Switch(
+                                    value: _batchMode,
+                                    activeColor: kPrimaryBlue,
+                                    onChanged: (v) {
+                                      setState(() {
+                                        _batchMode = v;
+                                        if (v) {
+                                          _batchEntries.add(_BatchEntry());
+                                        } else {
+                                          for (var e in _batchEntries) e.amountController.dispose();
+                                          _batchEntries.clear();
+                                        }
+                                      });
+                                    },
                                   ),
-                                  child: Text(DateFormat('dd/MM/yyyy').format(_selectedDate), style: const TextStyle(fontSize: 16)),
-                                ),
+                                ],
                               ),
                             ],
                           ),
                         ),
 
-                        // 3. CONDITIONAL UPLOADS (Approval & Payment)
+                        const SizedBox(height: 20),
+
+                        // 2a. SINGLE MODE: bill + amount + date together
+                        if (!_batchMode)
+                          glassCard(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Bill / Receipt picker
+                                Text("Bill / Receipt", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+                                const SizedBox(height: 12),
+                                if (_billFile != null) ...[
+                                  _buildFilePreview(
+                                    file: _billFile!,
+                                    onClear: () => setState(() => _billFile = null),
+                                  ),
+                                ] else ...[
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () => _pickFile('bill'),
+                                          icon: Icon(Icons.upload_file, color: kPrimaryBlue),
+                                          label: Text("Select File", style: TextStyle(color: kPrimaryBlue)),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 14),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: _pickWithCamera,
+                                          icon: Icon(Icons.camera_alt, color: kPrimaryBlue),
+                                          label: Text("Camera", style: TextStyle(color: kPrimaryBlue)),
+                                          style: OutlinedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(vertical: 14),
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+
+                                const SizedBox(height: 16),
+                                const Divider(height: 1),
+                                const SizedBox(height: 16),
+
+                                // Description (non-parking only)
+                                if (_selectedCategory != 'Parking') ...[
+                                  TextFormField(
+                                    controller: _descriptionController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Description',
+                                      hintText: 'Enter bill details',
+                                      prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                    ),
+                                    validator: (value) {
+                                      if (_selectedCategory != 'Parking' && (value == null || value.isEmpty)) {
+                                        return 'Please enter a description';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+
+                                // Amount
+                                TextFormField(
+                                  controller: _amountController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Amount (₹)',
+                                    prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
+                                    filled: true,
+                                    fillColor: Colors.white,
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                  ),
+                                  keyboardType: TextInputType.number,
+                                  validator: (value) => (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0)
+                                      ? 'Enter valid amount'
+                                      : null,
+                                ),
+
+                                const SizedBox(height: 16),
+
+                                // Date
+                                InkWell(
+                                  onTap: _selectDate,
+                                  child: InputDecorator(
+                                    decoration: InputDecoration(
+                                      labelText: 'Date of Bill',
+                                      prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                    ),
+                                    child: Text(DateFormat('dd/MM/yyyy').format(_selectedDate), style: const TextStyle(fontSize: 16)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+
+                        // 2b. BATCH MODE: description (shared) + entry list
+                        if (_batchMode) ...[
+                          if (_selectedCategory != 'Parking')
+                            glassCard(
+                              child: TextFormField(
+                                controller: _descriptionController,
+                                decoration: InputDecoration(
+                                  labelText: 'Description',
+                                  hintText: 'Enter bill details',
+                                  prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
+                                  filled: true,
+                                  fillColor: Colors.white,
+                                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                                ),
+                                validator: (value) {
+                                  if (_selectedCategory != 'Parking' && (value == null || value.isEmpty)) {
+                                    return 'Please enter a description';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                          const SizedBox(height: 12),
+                          ...List.generate(_batchEntries.length, (i) => _buildBatchEntryCard(i)),
+                          const SizedBox(height: 4),
+                          TextButton.icon(
+                            onPressed: () => setState(() => _batchEntries.add(_BatchEntry())),
+                            icon: Icon(Icons.add_circle_outline, color: kPrimaryBlue),
+                            label: Text("Add Another Bill", style: TextStyle(color: kPrimaryBlue, fontSize: 15)),
+                          ),
+                        ],
+
+                        // 4. SUPPORTING DOCS (non-parking)
+                        // Approval mail is always shared; payment proof is per-entry in batch mode
                         if (_selectedCategory != 'Parking') ...[
                           const SizedBox(height: 20),
                           _buildFileUploadSection(
-                            title: "Approval Mail (Screenshot/PDF)",
+                            title: _batchMode
+                                ? "Approval Mail — shared for all entries"
+                                : "Approval Mail (Screenshot/PDF)",
                             file: _approvalMailFile,
                             onPick: () => _pickFile('approval'),
                             onClear: () => setState(() => _approvalMailFile = null),
                           ),
-                          const SizedBox(height: 20),
-                          _buildFileUploadSection(
-                            title: "Payment Proof (Screenshot/PDF)",
-                            file: _paymentProofFile,
-                            onPick: () => _pickFile('payment'),
-                            onClear: () => setState(() => _paymentProofFile = null),
-                          ),
+                          // Payment proof only shown here in single mode; in batch mode it's per-entry
+                          if (!_batchMode) ...[
+                            const SizedBox(height: 20),
+                            _buildFileUploadSection(
+                              title: "Payment Proof (Screenshot/PDF)",
+                              file: _paymentProofFile,
+                              onPick: () => _pickFile('payment'),
+                              onClear: () => setState(() => _paymentProofFile = null),
+                            ),
+                          ],
                         ],
 
                         const SizedBox(height: 24),
 
-                        // ✅ SUBMIT BUTTON
+                        // 5. SUBMIT BUTTON
                         SizedBox(
                           width: double.infinity,
                           height: 55,
@@ -252,7 +374,12 @@ class _AddBillScreenState extends State<AddBillScreen> {
                             ),
                             child: _isLoading
                                 ? const CircularProgressIndicator(color: Colors.white)
-                                : const Text("Submit Bill", style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                                : Text(
+                                    _batchMode
+                                        ? "Submit ${_batchEntries.length} Bill${_batchEntries.length == 1 ? '' : 's'}"
+                                        : "Submit Bill",
+                                    style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                                  ),
                           ),
                         ),
                       ],
@@ -261,7 +388,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                 )
             ),
 
-            // ✅ OCR overlay
+            // OCR overlay
             if (_isAnalyzing)
               Container(
                 color: Colors.black54,
@@ -282,13 +409,191 @@ class _AddBillScreenState extends State<AddBillScreen> {
     );
   }
 
-  // ✅ REUSABLE FILE UPLOAD UI
+  /// Card for a single entry in batch mode.
+  Widget _buildBatchEntryCard(int index) {
+    final entry = _batchEntries[index];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: glassCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(
+                  "Bill ${index + 1}",
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: kPrimaryBlueDark),
+                ),
+                const Spacer(),
+                if (_batchEntries.length > 1)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    tooltip: "Remove",
+                    onPressed: () {
+                      setState(() {
+                        _batchEntries[index].amountController.dispose();
+                        _batchEntries.removeAt(index);
+                      });
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            // Bill file picker for this entry (first — OCR auto-fills amount & date)
+            _buildFileUploadSection(
+              title: "Bill / Receipt",
+              file: entry.billFile,
+              onPick: () async {
+                FilePickerResult? result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+                );
+                if (result != null) {
+                  setState(() => entry.billFile = result.files.first);
+                  final f = result.files.first;
+                  if (f.extension?.toLowerCase() != 'pdf' && f.path != null) {
+                    _runOcr(File(f.path!));
+                  }
+                }
+              },
+              onClear: () => setState(() => entry.billFile = null),
+              allowCamera: true,
+              onCamera: () async {
+                try {
+                  final pickedFile = await ImagePicker().pickImage(source: ImageSource.camera);
+                  if (pickedFile == null) return;
+                  setState(() {
+                    entry.billFile = PlatformFile(
+                      name: pickedFile.name,
+                      size: 0,
+                      path: pickedFile.path,
+                    );
+                  });
+                  _runOcr(File(pickedFile.path));
+                } on PlatformException catch (e) {
+                  if (e.code == 'camera_access_denied' && mounted) {
+                    showDialog(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Camera Permission Required'),
+                        content: const Text('Please enable camera access from your device settings.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                          ElevatedButton(
+                            onPressed: () { Navigator.pop(context); openAppSettings(); },
+                            child: const Text('Open Settings'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                }
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            // Amount (OCR may have pre-filled this)
+            TextFormField(
+              controller: entry.amountController,
+              decoration: InputDecoration(
+                labelText: 'Amount (₹)',
+                prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+
+            const SizedBox(height: 12),
+
+            // Date (OCR may have pre-filled this)
+            InkWell(
+              onTap: () async {
+                final picked = await showDatePicker(
+                  context: context,
+                  initialDate: entry.date,
+                  firstDate: DateTime(2020),
+                  lastDate: DateTime.now(),
+                );
+                if (picked != null) setState(() => entry.date = picked);
+              },
+              child: InputDecorator(
+                decoration: InputDecoration(
+                  labelText: 'Date of Bill',
+                  prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                child: Text(DateFormat('dd/MM/yyyy').format(entry.date), style: const TextStyle(fontSize: 16)),
+              ),
+            ),
+
+            // Payment proof per entry (non-parking only)
+            if (_selectedCategory != 'Parking') ...[
+              const SizedBox(height: 12),
+              _buildFileUploadSection(
+                title: "Payment Proof",
+                file: entry.paymentProofFile,
+                onPick: () async {
+                  FilePickerResult? result = await FilePicker.platform.pickFiles(
+                    type: FileType.custom,
+                    allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+                  );
+                  if (result != null) setState(() => entry.paymentProofFile = result.files.first);
+                },
+                onClear: () => setState(() => entry.paymentProofFile = null),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Shows the selected file preview row (thumbnail or PDF icon + filename + clear button).
+  /// Used inline inside combined cards where the pick buttons are built separately.
+  Widget _buildFilePreview({required PlatformFile file, required VoidCallback onClear}) {
+    final bool isPdf = file.extension?.toLowerCase() == 'pdf';
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+      ),
+      child: Row(
+        children: [
+          if (!isPdf && !kIsWeb && file.path != null)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.file(File(file.path!), width: 60, height: 60, fit: BoxFit.cover),
+            )
+          else
+            Container(
+              width: 60, height: 60,
+              decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
+              child: const Icon(Icons.picture_as_pdf, color: Colors.red, size: 30),
+            ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(file.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14))),
+          IconButton(icon: const Icon(Icons.cancel, color: Colors.redAccent), onPressed: onClear),
+        ],
+      ),
+    );
+  }
+
+  // REUSABLE FILE UPLOAD UI (used for approval mail, payment proof, and batch entry bill pickers)
   Widget _buildFileUploadSection({
     required String title,
     required PlatformFile? file,
     required VoidCallback onPick,
     required VoidCallback onClear,
     bool allowCamera = false,
+    VoidCallback? onCamera,
   }) {
     bool isPdf = file?.extension?.toLowerCase() == 'pdf';
 
@@ -309,7 +614,6 @@ class _AddBillScreenState extends State<AddBillScreen> {
               ),
               child: Row(
                 children: [
-                  // Show Image Preview or PDF Icon
                   if (!isPdf && !kIsWeb && file.path != null)
                     ClipRRect(
                       borderRadius: BorderRadius.circular(8),
@@ -351,7 +655,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: _pickWithCamera,
+                      onPressed: onCamera ?? _pickWithCamera,
                       icon: Icon(Icons.camera_alt, color: kPrimaryBlue),
                       label: Text("Camera", style: TextStyle(color: kPrimaryBlue)),
                       style: OutlinedButton.styleFrom(
@@ -376,7 +680,6 @@ class _AddBillScreenState extends State<AddBillScreen> {
     }
   }
 
-  // Pick file from Gallery or Files (PDF/Images)
   Future<void> _pickFile(String type) async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -391,14 +694,12 @@ class _AddBillScreenState extends State<AddBillScreen> {
         else if (type == 'payment') _paymentProofFile = file;
       });
 
-      // Attempt OCR only if it's the main bill and it's an image
       if (type == 'bill' && file.extension?.toLowerCase() != 'pdf' && file.path != null) {
         _runOcr(File(file.path!));
       }
     }
   }
 
-  // Camera specific logic (Image Picker) -> Convert to PlatformFile format
   Future<void> _pickWithCamera() async {
     try {
       final pickedFile = await ImagePicker().pickImage(source: ImageSource.camera);
@@ -450,7 +751,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
       }
     }
   }
-  // Separated OCR logic
+
   Future<void> _runOcr(File image) async {
     setState(() => _isAnalyzing = true);
     try {
@@ -470,20 +771,6 @@ class _AddBillScreenState extends State<AddBillScreen> {
   Future<void> _submitBill() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // ✅ VALIDATION: Main bill is always required
-    if (_billFile == null || _billFile!.path == null) {
-      _showErrorDialog("Please upload the main bill receipt.");
-      return;
-    }
-
-    // ✅ VALIDATION: Extra files required for non-parking
-    if (_selectedCategory != 'Parking') {
-      if (_approvalMailFile == null || _paymentProofFile == null) {
-        _showErrorDialog("Approval Mail and Payment Proof are required for this category.");
-        return;
-      }
-    }
-
     setState(() => _isLoading = true);
 
     try {
@@ -492,9 +779,89 @@ class _AddBillScreenState extends State<AddBillScreen> {
       if (password == null) return;
 
       final employeeId = widget.employeeId.toInt();
+
+      // ── BATCH MODE ──────────────────────────────────────────────
+      if (_batchMode) {
+        // Validate all entries
+        for (int i = 0; i < _batchEntries.length; i++) {
+          final entry = _batchEntries[i];
+          if (entry.billFile == null || entry.billFile!.path == null) {
+            _showErrorDialog("Please upload a bill receipt for Bill ${i + 1}.");
+            return;
+          }
+          final amt = double.tryParse(entry.amountController.text);
+          if (amt == null || amt <= 0) {
+            _showErrorDialog("Please enter a valid amount for Bill ${i + 1}.");
+            return;
+          }
+          if (_selectedCategory != 'Parking' && entry.paymentProofFile == null) {
+            _showErrorDialog("Please upload a payment proof for Bill ${i + 1}.");
+            return;
+          }
+        }
+        if (_selectedCategory != 'Parking' && _approvalMailFile == null) {
+          _showErrorDialog("Approval Mail is required for this category.");
+          return;
+        }
+
+        final bool backendAvailable = await ConnectivityService.isBackendAvailable();
+        if (!backendAvailable) {
+          _showErrorDialog("Unable to connect to server. Please try again when connected.");
+          return;
+        }
+
+        // Compress shared approval mail once
+        File? sharedApproval = await CompressionService.compressNullable(
+            _approvalMailFile?.path != null ? File(_approvalMailFile!.path!) : null);
+
+        int successCount = 0;
+        for (final entry in _batchEntries) {
+          File billFile = await CompressionService.compressFile(File(entry.billFile!.path!));
+          File? entryPayment = await CompressionService.compressNullable(
+              entry.paymentProofFile?.path != null ? File(entry.paymentProofFile!.path!) : null);
+          final ok = await ApiService.addBill(
+            employeeId: employeeId,
+            password: password,
+            reimbursementFor: _selectedCategory,
+            description: _descriptionController.text.trim(),
+            amount: double.parse(entry.amountController.text),
+            date: entry.date,
+            billImage: billFile,
+            approvalMail: sharedApproval,
+            paymentProof: entryPayment,
+          );
+          if (ok) successCount++;
+        }
+
+        if (!mounted) return;
+        if (successCount == _batchEntries.length) {
+          Navigator.pop(context, true);
+        } else {
+          setState(() => _isLoading = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$successCount of ${_batchEntries.length} bills submitted successfully.'),
+              backgroundColor: successCount > 0 ? Colors.orange : Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // ── SINGLE MODE ─────────────────────────────────────────────
+      if (_billFile == null || _billFile!.path == null) {
+        _showErrorDialog("Please upload the main bill receipt.");
+        return;
+      }
+      if (_selectedCategory != 'Parking') {
+        if (_approvalMailFile == null || _paymentProofFile == null) {
+          _showErrorDialog("Approval Mail and Payment Proof are required for this category.");
+          return;
+        }
+      }
+
       final bool backendAvailable = await ConnectivityService.isBackendAvailable();
 
-      // Compress files before upload (images only; PDFs are passed through unchanged)
       File mainBill = await CompressionService.compressFile(File(_billFile!.path!));
       File? approvalMail = await CompressionService.compressNullable(
           _approvalMailFile?.path != null ? File(_approvalMailFile!.path!) : null);
@@ -513,24 +880,23 @@ class _AddBillScreenState extends State<AddBillScreen> {
         );
         return;
       }
-      else {
-        final success = await ApiService.addBill(
-          employeeId: employeeId,
-          password: password,
-          reimbursementFor: _selectedCategory,
-          description: _descriptionController.text.trim(),
-          amount: double.parse(_amountController.text),
-          date: _selectedDate,
-          billImage: mainBill,
-          approvalMail: approvalMail,
-          paymentProof: paymentProof,
-        );
 
-        if (success && mounted) {
-          Navigator.pop(context, true);
-        } else {
-          _showErrorDialog("Submission failed. Please try again.");
-        }
+      final success = await ApiService.addBill(
+        employeeId: employeeId,
+        password: password,
+        reimbursementFor: _selectedCategory,
+        description: _descriptionController.text.trim(),
+        amount: double.parse(_amountController.text),
+        date: _selectedDate,
+        billImage: mainBill,
+        approvalMail: approvalMail,
+        paymentProof: paymentProof,
+      );
+
+      if (success && mounted) {
+        Navigator.pop(context, true);
+      } else {
+        _showErrorDialog("Submission failed. Please try again.");
       }
     }
     catch (e) {
@@ -544,6 +910,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
   }
 
   void _showErrorDialog(String msg) {
+    setState(() => _isLoading = false);
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -558,6 +925,8 @@ class _AddBillScreenState extends State<AddBillScreen> {
   void dispose() {
     _amountController.dispose();
     _descriptionController.dispose();
+    _scrollController.dispose();
+    for (var e in _batchEntries) e.amountController.dispose();
     super.dispose();
   }
 }

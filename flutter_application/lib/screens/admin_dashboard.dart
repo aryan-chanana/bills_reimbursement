@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui';
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:http/http.dart' as http;
@@ -15,6 +17,7 @@ import '../services/api_service.dart';
 import '../services/excel_service.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
 
 class AdminDashboard extends StatefulWidget {
   const AdminDashboard({super.key});
@@ -104,7 +107,6 @@ class _AdminDashboardState extends State<AdminDashboard>
         }
       }
     } catch (e) {
-      print("LOAD BILLS ERROR = $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
       }
@@ -1516,82 +1518,283 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Future<void> _generateBillsPdf() async {
-    try {
-      if (_filteredBills.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No bills to export')),
-        );
-        return;
-      }
+    if (_filteredBills.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No bills to export')),
+      );
+      return;
+    }
 
-      final pdf = pw.Document();
-      final headers = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
+    // Show loading dialog while generating
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text('Generating PDF…'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      // Load Unicode-supporting fonts so bullet (•) and em-dash (—) render correctly
+      final fontRegular = await PdfGoogleFonts.notoSansRegular();
+      final fontBold    = await PdfGoogleFonts.notoSansBold();
+
+      final pdf = pw.Document(
+        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+      );
+      final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
 
       for (final bill in _filteredBills) {
-        final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
-
-        final response = await http.get(
-          Uri.parse(imageUrl),
-          headers: headers,
+        final employee = _employees.firstWhere(
+          (e) => e.employeeId == bill.employeeId,
+          orElse: () => User(employeeId: bill.employeeId, name: 'Unknown', password: ''),
         );
 
-        if (response.statusCode == 200) {
-          final image = pw.MemoryImage(response.bodyBytes);
-
-          pdf.addPage(
-            pw.Page(
-              pageFormat: PdfPageFormat.a4,
-              build: (context) {
-                return pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text(
-                      'Bill ID: ${bill.billId}',
-                      style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold),
-                    ),
-                    pw.SizedBox(height: 4),
-                    pw.Text('Employee ID: ${bill.employeeId}'),
-                    pw.Text('Category: ${bill.reimbursementFor}'),
-                    pw.Text('Amount: Rs. ${bill.amount.toStringAsFixed(2)}'),
-                    pw.Text('Bill Date: ${DateFormat('dd MMM yyyy').format(bill.date)}'),
-                    pw.Text('Submission Date: ${DateFormat('dd MMM yyyy').format(bill.createdAt!)}'),
-                    pw.Text('Status: ${bill.status}'),
-                    pw.SizedBox(height: 12),
-                    pw.Center(
-                      child: pw.Image(
-                        image,
-                        fit: pw.BoxFit.contain,
-                        height: 500,
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+        // Fetch bill receipt — rasterise first page if PDF, use bytes directly if image
+        List<Uint8List> receiptPages = [];
+        try {
+          final resp = await http.get(
+            Uri.parse('${ApiService.baseUrl}/files/${bill.billImagePath}'),
+            headers: authHeaders,
           );
+          if (resp.statusCode == 200) {
+            if (bill.billImagePath.toLowerCase().endsWith('.pdf')) {
+              await for (final raster in Printing.raster(resp.bodyBytes, dpi: 150)) {
+                receiptPages.add(await raster.toPng());
+              }
+            } else {
+              receiptPages = [resp.bodyBytes];
+            }
+          }
+        } catch (_) {}
+
+        // ── Page 1: info summary + bill receipt ────────────────────
+        pdf.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(32),
+            build: (_) {
+              return pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Title bar
+                  pw.Container(
+                    width: double.infinity,
+                    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.blue800,
+                      borderRadius: pw.BorderRadius.circular(6),
+                    ),
+                    child: pw.Text(
+                      'Bill #${bill.billId}',
+                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+                    ),
+                  ),
+                  pw.SizedBox(height: 10),
+
+                  // Details
+                  _pdfInfoRow('Employee', '${employee.name}  (ID: ${bill.employeeId})'),
+                  _pdfInfoRow('Category', bill.reimbursementFor),
+                  if (bill.billDescription != null && bill.billDescription!.isNotEmpty)
+                    _pdfInfoRow('Description', bill.billDescription!),
+                  _pdfInfoRow('Amount', 'Rs. ${bill.amount.toStringAsFixed(2)}'),
+                  _pdfInfoRow('Bill Date', DateFormat('dd MMM yyyy').format(bill.date)),
+                  _pdfInfoRow('Submitted', bill.createdAt != null ? DateFormat('dd MMM yyyy').format(bill.createdAt!) : '—'),
+                  _pdfInfoRow('Status', bill.status.toUpperCase()),
+                  if (bill.remarks != null && bill.remarks!.isNotEmpty)
+                    _pdfInfoRow('Remarks', bill.remarks!),
+
+                  pw.SizedBox(height: 8),
+
+                  // Document summary
+                  pw.Text('Attached Documents:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+                  pw.SizedBox(height: 4),
+                  _pdfDocLine('Bill Receipt', bill.billImagePath),
+                  _pdfDocLine('Approval Mail', bill.approvalMailPath),
+                  _pdfDocLine('Payment Proof', bill.paymentProofPath),
+
+                  pw.SizedBox(height: 10),
+                  pw.Divider(color: PdfColors.grey400),
+                  pw.SizedBox(height: 8),
+
+                  // Bill receipt — first page (or unavailable note)
+                  pw.Expanded(
+                    child: pw.Center(
+                      child: receiptPages.isNotEmpty
+                          ? pw.Image(pw.MemoryImage(receiptPages.first), fit: pw.BoxFit.contain)
+                          : pw.Text(
+                              'Bill Receipt: Image unavailable',
+                              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+                            ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        );
+
+        // Extra pages for multi-page bill receipt PDFs
+        for (int p = 1; p < receiptPages.length; p++) {
+          final pageImg = pw.MemoryImage(receiptPages[p]);
+          pdf.addPage(pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(24),
+            build: (_) => pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text('Bill #${bill.billId} — Bill Receipt (page ${p + 1})',
+                    style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+                pw.SizedBox(height: 12),
+                pw.Expanded(child: pw.Center(child: pw.Image(pageImg, fit: pw.BoxFit.contain))),
+              ],
+            ),
+          ));
         }
+
+        // ── Subsequent pages: approval mail + payment proof (full page each) ──
+        await _addDocumentPage(pdf, authHeaders, bill.approvalMailPath, 'Approval Mail', bill.billId);
+        await _addDocumentPage(pdf, authHeaders, bill.paymentProofPath, 'Payment Proof', bill.billId);
       }
 
       final pdfBytes = await pdf.save();
-      final fileName =
-          'Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf';
+      final fileName = 'Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
 
-      await BillDownloadService.downloadBytes(
-        pdfBytes,
-        fileName,
-        'application/pdf',
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // dismiss loading dialog
+
+      await FileSaver.instance.saveAs(
+        name: fileName,
+        bytes: Uint8List.fromList(pdfBytes),
+        fileExtension: 'pdf',
+        mimeType: MimeType.pdf,
       );
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PDF saved to downloads'), backgroundColor: Colors.green));
-    }
-    catch (e) {
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF saved to downloads'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
       debugPrint('PDF ERROR: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to generate PDF'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop(); // dismiss loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
+  }
+
+  /// Fetches a document and adds it to the PDF.
+  /// Images: embedded directly. PDFs: each page rasterised at 150 dpi and embedded.
+  /// Silently skips if path is null/empty or the fetch fails.
+  Future<void> _addDocumentPage(
+    pw.Document pdf,
+    Map<String, String> headers,
+    String? path,
+    String label,
+    int billId,
+  ) async {
+    if (path == null || path.isEmpty) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('${ApiService.baseUrl}/files/$path'),
+        headers: headers,
+      );
+      if (response.statusCode != 200) return;
+
+      final fileBytes = response.bodyBytes;
+      final isPdf = path.toLowerCase().endsWith('.pdf');
+
+      if (isPdf) {
+        // Rasterise each page and embed as a full-size image
+        int pageNum = 1;
+        await for (final raster in Printing.raster(fileBytes, dpi: 150)) {
+          final imgBytes = await raster.toPng();
+          final image = pw.MemoryImage(imgBytes);
+          final currentPage = pageNum;
+          pdf.addPage(pw.Page(
+            pageFormat: PdfPageFormat.a4,
+            margin: const pw.EdgeInsets.all(24),
+            build: (_) => pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Text(
+                  currentPage == 1 ? 'Bill #$billId — $label' : 'Bill #$billId — $label (page $currentPage)',
+                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+                ),
+                pw.SizedBox(height: 12),
+                pw.Expanded(child: pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain))),
+              ],
+            ),
+          ));
+          pageNum++;
+        }
+      } else {
+        // Plain image document
+        final image = pw.MemoryImage(fileBytes);
+        pdf.addPage(pw.Page(
+          pageFormat: PdfPageFormat.a4,
+          margin: const pw.EdgeInsets.all(24),
+          build: (_) => pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text('Bill #$billId — $label',
+                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+              pw.SizedBox(height: 12),
+              pw.Expanded(child: pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain))),
+            ],
+          ),
+        ));
+      }
+    } catch (_) {
+      // Skip document if fetch or rasterisation fails
+    }
+  }
+
+  /// A labelled info row for the bill summary page.
+  pw.Widget _pdfInfoRow(String label, String value) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 3),
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(
+            width: 100,
+            child: pw.Text(label, style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+          ),
+          pw.Text(': ', style: const pw.TextStyle(fontSize: 11)),
+          pw.Expanded(child: pw.Text(value, style: const pw.TextStyle(fontSize: 11))),
+        ],
+      ),
+    );
+  }
+
+  /// A document presence indicator line (filename or "Not provided").
+  pw.Widget _pdfDocLine(String label, String? path) {
+    final present = path != null && path.isNotEmpty;
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2),
+      child: pw.Row(
+        children: [
+          pw.Text('  • $label: ', style: const pw.TextStyle(fontSize: 11)),
+          pw.Text(
+            present ? path.split('/').last : 'Not provided',
+            style: pw.TextStyle(
+              fontSize: 11,
+              color: present ? PdfColors.black : PdfColors.grey600,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showCreateUserDialog() {
