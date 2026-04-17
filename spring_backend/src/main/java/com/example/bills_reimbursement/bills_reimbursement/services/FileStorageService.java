@@ -27,6 +27,16 @@ public class FileStorageService {
         }
     }
 
+    public void deleteFile(String filename) {
+        if (filename == null || filename.isBlank()) return;
+        try {
+            Files.deleteIfExists(this.fileStorageLocation.resolve(filename));
+        } catch (IOException ex) {
+            // Best-effort: log but don't fail the whole delete operation
+            System.err.println("Could not delete file: " + filename + " — " + ex.getMessage());
+        }
+    }
+
     public String storeFile(MultipartFile file, Integer employeeId, String fileType) {
         String originalFileName = file.getOriginalFilename();
         String fileExtension = "";

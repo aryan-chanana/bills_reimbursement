@@ -1,12 +1,13 @@
 package com.example.bills_reimbursement.bills_reimbursement.configs;
 
 import com.example.bills_reimbursement.bills_reimbursement.services.CustomUserDetailsService;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.Customizer;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -60,12 +61,20 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/admin/bills/*/status").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/admin/users").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/admin/users/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/admin/users/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/admin/users/**").hasRole("ADMIN")
 
                         // 👇 Fallback
                         .anyRequest().authenticated()
                 )
-                .httpBasic(Customizer.withDefaults());
+                .httpBasic(basic -> basic.authenticationEntryPoint((request, response, authException) -> {
+                    response.setContentType("application/json");
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    String message = (authException.getCause() instanceof DisabledException || authException instanceof DisabledException)
+                            ? "Your account has been disabled. Please contact the administrator."
+                            : "Invalid credentials";
+                    response.getWriter().write("{\"error\": \"" + message + "\"}");
+                }));
 
         return http.build();
     }

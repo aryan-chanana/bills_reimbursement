@@ -79,6 +79,10 @@ public class BillController {
         if (targetUser.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "User to associate bill with not found"));
         }
+        if (targetUser.get().isDisabled()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "User disabled. Contact administrator."));
+        }
 
         if (!reimbursementFor.equalsIgnoreCase("Parking")) {
             if (approvalMail == null || paymentProof == null || description == null || description.isEmpty()) {
@@ -114,6 +118,10 @@ public class BillController {
         if (targetBill == null) {
             return ResponseEntity.notFound().build();
         }
+        if (targetBill.getUser().isDisabled()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "User disabled. Contact administrator."));
+        }
         if (targetBill.getUser().getEmployeeId().equals(employeeId)) {
             return ResponseEntity.ok(targetBill);
         }
@@ -146,6 +154,10 @@ public class BillController {
         if (!existingBill.getUser().getEmployeeId().equals(employeeId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
+        if (existingBill.getUser().isDisabled()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "User disabled. Contact administrator."));
+        }
         if (!reimbursementFor.equalsIgnoreCase("Parking")) {
             boolean hasApproval = (approvalMail != null && !approvalMail.isEmpty())
                     || (existingBill.getApprovalMailPath() != null && !existingBill.getApprovalMailPath().isEmpty());
@@ -167,16 +179,16 @@ public class BillController {
         existingBill.setDate(date);
         existingBill.setStatus("Pending");
         if (billImage != null && !billImage.isEmpty()) {
-            String fileName = fileStorageService.storeFile(billImage, employeeId, "bill");
-            existingBill.setBillImagePath(fileName);
+            fileStorageService.deleteFile(existingBill.getBillImagePath());
+            existingBill.setBillImagePath(fileStorageService.storeFile(billImage, employeeId, "bill"));
         }
         if (approvalMail != null && !approvalMail.isEmpty()) {
-            String fileName = fileStorageService.storeFile(approvalMail, employeeId, "approval");
-            existingBill.setApprovalMailPath(fileName);
+            fileStorageService.deleteFile(existingBill.getApprovalMailPath());
+            existingBill.setApprovalMailPath(fileStorageService.storeFile(approvalMail, employeeId, "approval"));
         }
         if (paymentProof != null && !paymentProof.isEmpty()) {
-            String fileName = fileStorageService.storeFile(paymentProof, employeeId, "payment");
-            existingBill.setPaymentProofPath(fileName);
+            fileStorageService.deleteFile(existingBill.getPaymentProofPath());
+            existingBill.setPaymentProofPath(fileStorageService.storeFile(paymentProof, employeeId, "payment"));
         }
 
         billRepository.save(existingBill);
@@ -202,12 +214,19 @@ public class BillController {
         if (!bill.getUser().getEmployeeId().equals(employeeId)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "This bill does not belong to the specified user."));
         }
+        if (bill.getUser().isDisabled()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(Map.of("error", "User disabled. Contact administrator."));
+        }
 
         String status = Optional.ofNullable(bill.getStatus()).map(String::toUpperCase).orElse("UNKNOWN");
         if (status.equals("PAID")) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("error", "Cannot delete an approved bill."));
         }
 
+        fileStorageService.deleteFile(bill.getBillImagePath());
+        fileStorageService.deleteFile(bill.getApprovalMailPath());
+        fileStorageService.deleteFile(bill.getPaymentProofPath());
         billRepository.delete(bill);
         return ResponseEntity.ok(Map.of("message", "Bill has been deleted successfully"));
     }

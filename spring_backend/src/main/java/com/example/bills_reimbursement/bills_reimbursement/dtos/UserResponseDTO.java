@@ -15,4 +15,6 @@ public class UserResponseDTO {
 
     private boolean isApproved;
 
+    private boolean isDisabled;
+
 }

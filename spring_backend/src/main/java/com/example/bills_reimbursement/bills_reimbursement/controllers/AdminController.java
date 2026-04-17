@@ -5,12 +5,16 @@ import com.example.bills_reimbursement.bills_reimbursement.dtos.User;
 import com.example.bills_reimbursement.bills_reimbursement.dtos.UserResponseDTO;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.BillRepository;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepository;
+import com.example.bills_reimbursement.bills_reimbursement.services.DataCleanupScheduler;
+import com.example.bills_reimbursement.bills_reimbursement.services.EmailService;
+import com.example.bills_reimbursement.bills_reimbursement.services.FileStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,6 +31,15 @@ public class AdminController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private FileStorageService fileStorageService;
+
+    @Autowired
+    private DataCleanupScheduler dataCleanupScheduler;
+
+    @Autowired
+    private EmailService emailService;
+
     @GetMapping("/users")
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
 
@@ -42,12 +55,25 @@ public class AdminController {
 
     @DeleteMapping("/users/{employeeId}")
     public ResponseEntity<?> deleteUser(@PathVariable Integer employeeId) {
-        if (!userRepository.existsById(employeeId)) {
+        Optional<User> userOpt = userRepository.findByEmployeeId(employeeId);
+        if (userOpt.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "User not found"));
         }
+
+        // Delete all uploaded files for this user's bills
+        List<Bill> bills = billRepository.findAllByUser_EmployeeIdOrderByDateDesc(employeeId);
+        for (Bill bill : bills) {
+            fileStorageService.deleteFile(bill.getBillImagePath());
+            fileStorageService.deleteFile(bill.getApprovalMailPath());
+            fileStorageService.deleteFile(bill.getPaymentProofPath());
+        }
+
+        // Delete bills then user
+        billRepository.deleteAll(bills);
         userRepository.deleteById(employeeId);
-        return ResponseEntity.ok(Map.of("message", "User has been deleted"));
+
+        return ResponseEntity.ok(Map.of("message", "User and all associated data deleted"));
     }
 
     @GetMapping("/bills")
@@ -124,6 +150,94 @@ public class AdminController {
 
         User savedUser = userRepository.save(existingUser);
         return ResponseEntity.ok(User.toDto(savedUser));
+    }
+
+    @PatchMapping("/users/{employeeId}/disable")
+    public ResponseEntity<?> setUserDisabled(@PathVariable Integer employeeId,
+                                             @RequestBody Map<String, Boolean> body) {
+        Optional<User> userOpt = userRepository.findByEmployeeId(employeeId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "User not found"));
+        }
+
+        Boolean disabled = body.get("disabled");
+        if (disabled == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "'disabled' field is required"));
+        }
+
+        User user = userOpt.get();
+        user.setDisabled(disabled);
+        userRepository.save(user);
+
+        String action = disabled ? "disabled" : "enabled";
+        return ResponseEntity.ok(Map.of("message", "User has been " + action));
+    }
+
+    @GetMapping("/bills/cleanup/count")
+    public ResponseEntity<?> getOldBillsCount() {
+        LocalDate cutoff = getCleanupCutoff();
+        int count = billRepository.countByCreatedAtBefore(cutoff);
+        return ResponseEntity.ok(Map.of("count", count, "cutoffDate", cutoff.toString()));
+    }
+
+    @DeleteMapping("/bills/cleanup")
+    public ResponseEntity<?> deleteOldBills() {
+        LocalDate cutoff = getCleanupCutoff();
+        List<Bill> oldBills = billRepository.findAllByCreatedAtBefore(cutoff);
+
+        for (Bill bill : oldBills) {
+            fileStorageService.deleteFile(bill.getBillImagePath());
+            fileStorageService.deleteFile(bill.getApprovalMailPath());
+            fileStorageService.deleteFile(bill.getPaymentProofPath());
+        }
+
+        billRepository.deleteAll(oldBills);
+        return ResponseEntity.ok(Map.of(
+            "message", "Old bills deleted successfully",
+            "count", oldBills.size(),
+            "cutoffDate", cutoff.toString()
+        ));
+    }
+
+    /**
+     * Returns the cutoff date: April 1 of (currentFYStart - 2).
+     * Bills BEFORE this date are eligible for deletion.
+     * Financial year runs April 1 – March 31.
+     * Example: called on 10 Apr 2026 → currentFYStart=2026 → cutoff=2024-04-01
+     */
+    private LocalDate getCleanupCutoff() {
+        LocalDate today = LocalDate.now();
+        int currentFYStart = today.getMonthValue() >= 4 ? today.getYear() : today.getYear() - 1;
+        return LocalDate.of(currentFYStart - 2, 4, 1);
+    }
+
+    @PostMapping("/cleanup-reminder/trigger")
+    public ResponseEntity<?> triggerCleanupReminder() {
+        String result = dataCleanupScheduler.triggerCleanupReminder();
+        return ResponseEntity.ok(Map.of("message", result));
+    }
+
+    // Test endpoint — sends email regardless of bill count (for verifying email config)
+    @PostMapping("/cleanup-reminder/test")
+    public ResponseEntity<?> testCleanupReminder() {
+        String result = dataCleanupScheduler.triggerCleanupReminderTest();
+        return ResponseEntity.ok(Map.of("message", result));
+    }
+
+    // Raw SMTP test — bypasses bill/admin logic, sends directly to given email
+    @PostMapping("/cleanup-reminder/smtp-test")
+    public ResponseEntity<?> smtpTest(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "email is required"));
+        }
+        try {
+            emailService.sendOldDataCleanupReminder(email, 0, getCleanupCutoff());
+            return ResponseEntity.ok(Map.of("message", "Test email sent to " + email));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
     }
 
     @GetMapping("/ping")

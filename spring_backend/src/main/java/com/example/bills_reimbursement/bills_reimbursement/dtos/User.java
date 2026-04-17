@@ -39,6 +39,10 @@ public class User implements UserDetails {
     @Column(name = "is_approved", nullable = false)
     private boolean isApproved;
 
+    @JsonProperty("isDisabled")
+    @Column(name = "is_disabled", nullable = false)
+    private boolean isDisabled;
+
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
@@ -70,7 +74,7 @@ public class User implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return !isDisabled;
     }
 
     public static UserResponseDTO toDto(User user) {
@@ -80,6 +84,7 @@ public class User implements UserDetails {
         userResponseDTO.setEmail(user.getEmail());
         userResponseDTO.setAdmin(user.isAdmin());
         userResponseDTO.setApproved(user.isApproved());
+        userResponseDTO.setDisabled(user.isDisabled());
         return userResponseDTO;
     }
 }
