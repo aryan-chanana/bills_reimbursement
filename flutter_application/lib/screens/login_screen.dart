@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
 import '../services/api_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -312,7 +313,11 @@ class _LoginScreenState extends State<LoginScreen> {
             _isLoading = true; // Resume loading for final sign up call
           });
 
-          bool success = await ApiService.signUp(employeeId, name, email, password, false);
+          String? fcmToken;
+          try {
+            fcmToken = await NotificationService.requestPermissionAndGetToken();
+          } catch (_) {}
+          bool success = await ApiService.signUp(employeeId, name, email, password, false, fcmToken: fcmToken);
           if (success) {
             _showSuccessDialog('Email verified! Request sent to admin. You can login once approved.');
             setState(() {
@@ -335,6 +340,12 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         await _saveUserSession(user, password);
+
+        try {
+          final token = await NotificationService.requestPermissionAndGetToken();
+          if (token != null) await ApiService.updateFcmToken(employeeId, password, token);
+        } catch (_) {}
+
         if (user.isAdmin) {
           _navigateToAdminDashboard();
         } else {
@@ -342,7 +353,6 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       }
     } catch (e) {
-      debugPrint("LOGIN / SIGNUP ERROR = $e");
       if (mounted) {
         final msg = e.toString().replaceFirst('Exception: ', '');
         _showErrorDialog(msg);

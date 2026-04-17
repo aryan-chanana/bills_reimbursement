@@ -15,6 +15,7 @@ import '../models/bill_model.dart';
 import '../screens/add_bill_screen.dart';
 import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import '../services/compression_service.dart';
 import '../services/offline_queue_service.dart';
 import 'package:flutter/foundation.dart';
@@ -62,7 +63,17 @@ class _UserDashboardState extends State<UserDashboard> {
       _isAdmin = prefs.getBool('is_admin') ?? false;
 
       await OfflineQueueService.trySubmitQueuedBills(int.parse(employeeId), password);
+      _uploadFcmToken(employeeId, password);
     });
+  }
+
+  Future<void> _uploadFcmToken(String employeeId, String password) async {
+    try {
+      final token = await NotificationService.requestPermissionAndGetToken();
+      if (token != null) {
+        await ApiService.updateFcmToken(employeeId, password, token);
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadUserData() async {
@@ -101,7 +112,6 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     }
     catch (e) {
-      print("LOAD BILLS ERROR = $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
       }

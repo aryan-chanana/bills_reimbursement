@@ -12,8 +12,6 @@ class OcrService {
 
     String fullText = recognizedText.text;
 
-    print("--- RAW OCR TEXT ---\n$fullText\n--- END RAW TEXT ---");
-
     if (fullText.toLowerCase().contains('noida auth parking')) {
       return _parseNoidaParkingReceipt(fullText);
     } else {
@@ -42,8 +40,7 @@ class OcrService {
         if (latestDate == null || parsedDate.isAfter(latestDate)) {
           latestDate = parsedDate;
         }
-      } catch (e) {
-        print("Could not parse date string: ${match.group(1)}");
+      } catch (_) {
       }
     }
     date = latestDate;

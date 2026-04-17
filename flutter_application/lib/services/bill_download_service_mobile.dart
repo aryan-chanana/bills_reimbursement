@@ -23,8 +23,7 @@ class BillDownloadService {
         final file = File('${directory.path}/$fileName');
         await file.writeAsBytes(bytes);
       }
-    } catch (e) {
-      debugPrint("Mobile download error: $e");
+    } catch (_) {
     }
   }
 }

@@ -204,7 +204,18 @@ class _AddBillScreenState extends State<AddBillScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 // Bill / Receipt picker
-                                Text("Bill / Receipt", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+                                Row(
+                                  children: [
+                                    Text("Bill / Receipt", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+                                    const SizedBox(width: 6),
+                                    Tooltip(
+                                      message: "Original bill or receipt issued by the vendor",
+                                      triggerMode: TooltipTriggerMode.tap,
+                                      showDuration: const Duration(seconds: 3),
+                                      child: Icon(Icons.info_outline, size: 18, color: kPrimaryBlue.withOpacity(0.7)),
+                                    ),
+                                  ],
+                                ),
                                 const SizedBox(height: 12),
                                 if (_billFile != null) ...[
                                   _buildFilePreview(
@@ -343,6 +354,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                             title: _batchMode
                                 ? "Approval Mail — shared for all entries"
                                 : "Approval Mail (Screenshot/PDF)",
+                            tooltip: "Screenshot or PDF of the approval email received from management",
                             file: _approvalMailFile,
                             onPick: () => _pickFile('approval'),
                             onClear: () => setState(() => _approvalMailFile = null),
@@ -352,6 +364,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                             const SizedBox(height: 20),
                             _buildFileUploadSection(
                               title: "Payment Proof (Screenshot/PDF)",
+                              tooltip: "Screenshot of the payment made (e.g. UPI, bank transfer)",
                               file: _paymentProofFile,
                               onPick: () => _pickFile('payment'),
                               onClear: () => setState(() => _paymentProofFile = null),
@@ -443,6 +456,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
             // Bill file picker for this entry (first — OCR auto-fills amount & date)
             _buildFileUploadSection(
               title: "Bill / Receipt",
+              tooltip: "Original bill or receipt issued by the vendor",
               file: entry.billFile,
               onPick: () async {
                 FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -537,6 +551,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
               const SizedBox(height: 12),
               _buildFileUploadSection(
                 title: "Payment Proof",
+                tooltip: "Screenshot of the payment made (e.g. UPI, bank transfer)",
                 file: entry.paymentProofFile,
                 onPick: () async {
                   FilePickerResult? result = await FilePicker.platform.pickFiles(
@@ -594,6 +609,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
     required VoidCallback onClear,
     bool allowCamera = false,
     VoidCallback? onCamera,
+    String? tooltip,
   }) {
     bool isPdf = file?.extension?.toLowerCase() == 'pdf';
 
@@ -601,7 +617,20 @@ class _AddBillScreenState extends State<AddBillScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+          Row(
+            children: [
+              Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+              if (tooltip != null) ...[
+                const SizedBox(width: 6),
+                Tooltip(
+                  message: tooltip,
+                  triggerMode: TooltipTriggerMode.tap,
+                  showDuration: const Duration(seconds: 3),
+                  child: Icon(Icons.info_outline, size: 18, color: kPrimaryBlue.withOpacity(0.7)),
+                ),
+              ],
+            ],
+          ),
           const SizedBox(height: 12),
 
           if (file != null) ...[

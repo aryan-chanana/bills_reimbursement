@@ -46,17 +46,19 @@ class ApiService {
     }
   }
 
-  static Future<bool> signUp(String employeeId, String name, String email, String password, bool isAdmin) async {
+  static Future<bool> signUp(String employeeId, String name, String email, String password, bool isAdmin, {String? fcmToken}) async {
+    final Map<String, dynamic> body = {
+      'employeeId': int.tryParse(employeeId) ?? 0,
+      'name': name,
+      'email': email,
+      'password': password,
+      'admin': isAdmin,
+    };
+    if (fcmToken != null) body['fcmToken'] = fcmToken;
     final response = await http.post(
       Uri.parse('$baseUrl/users'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'employeeId': int.tryParse(employeeId) ?? 0,
-        'name': name,
-        'email': email,
-        'password': password,
-        'admin': isAdmin,
-      }),
+      body: jsonEncode(body),
     );
     return response.statusCode == 201;
   }
@@ -215,9 +217,6 @@ class ApiService {
       body: jsonEncode(body),
     );
 
-    print("response = " + response.statusCode.toString());
-
-
     if (response.statusCode == 200) {
       return true;
     } else {
@@ -329,6 +328,15 @@ class ApiService {
     );
     if (response.statusCode == 200) return jsonDecode(response.body) as Map<String, dynamic>;
     throw Exception('Failed to delete old bills');
+  }
+
+  static Future<void> updateFcmToken(String employeeId, String password, String fcmToken) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/users/$employeeId/fcm-token'),
+      headers: getAuthHeaders(employeeId, password),
+      body: jsonEncode({'fcmToken': fcmToken}),
+    );
+    debugPrint('FCM_TOKEN_API: status=${response.statusCode} body=${response.body}');
   }
 
   static Future<bool> resetPassword(String employeeId, String newPassword) async {

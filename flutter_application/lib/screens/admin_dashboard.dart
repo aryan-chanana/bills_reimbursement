@@ -14,6 +14,7 @@ import '../models/user_model.dart';
 import '../services/bill_download_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import '../services/excel_service.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:pdf/pdf.dart';
@@ -66,6 +67,25 @@ class _AdminDashboardState extends State<AdminDashboard>
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
     _loadData();
+    Future.delayed(const Duration(milliseconds: 100), _uploadFcmToken);
+  }
+
+  Future<void> _uploadFcmToken() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final employeeId = prefs.getInt('employee_id')?.toString();
+      final password = prefs.getString('password');
+      debugPrint('FCM_UPLOAD: employeeId=$employeeId, hasPassword=${password != null}');
+      if (employeeId == null || password == null) return;
+      final token = await NotificationService.requestPermissionAndGetToken();
+      debugPrint('FCM_UPLOAD: token=${token != null ? token.substring(0, 20) + "..." : "NULL"}');
+      if (token != null) {
+        await ApiService.updateFcmToken(employeeId, password, token);
+        debugPrint('FCM_UPLOAD: done');
+      }
+    } catch (e) {
+      debugPrint('FCM_UPLOAD ERROR: $e');
+    }
   }
 
   Future<void> _loadData() async {
@@ -1297,7 +1317,6 @@ class _AdminDashboardState extends State<AdminDashboard>
       status: "PAID",
     );
 
-    Navigator.pop(context);
     if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bill marked as paid'), backgroundColor: Colors.green),
