@@ -4,6 +4,7 @@ import com.example.bills_reimbursement.bills_reimbursement.dtos.User;
 import com.example.bills_reimbursement.bills_reimbursement.dtos.UserResponseDTO;
 import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepository;
 import com.example.bills_reimbursement.bills_reimbursement.services.EmailService;
+import com.example.bills_reimbursement.bills_reimbursement.services.FCMService;
 import com.example.bills_reimbursement.bills_reimbursement.services.OtpService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -32,6 +33,9 @@ public class UserController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private FCMService fcmService;
+
     @PostMapping
     public ResponseEntity<?> createUser(@RequestBody User user) {
         if (userRepository.existsById(user.getEmployeeId())) {
@@ -46,6 +50,12 @@ public class UserController {
         user.setPassword(passwordEncoder.encode(user.getPassword()));
         user.setApproved(false);
         User savedUser = userRepository.save(user);
+
+        userRepository.findAllAdmins().forEach(admin ->
+                fcmService.sendNotification(admin.getFcmToken(),
+                        "New Approval Request 👤",
+                        savedUser.getName() + " (ID: " + savedUser.getEmployeeId() + ") has registered and is awaiting approval."));
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("message", "User created successfully", "id", savedUser.getEmployeeId()));
     }
@@ -122,6 +132,29 @@ public class UserController {
         }
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Invalid or expired OTP.");
+    }
+
+    @PatchMapping("/{employeeId}/fcm-token")
+    public ResponseEntity<?> updateFcmToken(
+            @PathVariable Integer employeeId,
+            @RequestBody Map<String, String> body,
+            Authentication authentication) {
+        User caller = (User) authentication.getPrincipal();
+        if (!caller.getEmployeeId().equals(employeeId)) {
+            return ResponseEntity.status(403).build();
+        }
+        String token = body.get("fcmToken");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "fcmToken is required"));
+        }
+        Optional<User> userOpt = userRepository.findByEmployeeId(employeeId);
+        if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+        User user = userOpt.get();
+        user.setFcmToken(token);
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "FCM token updated"));
     }
 
     @PostMapping("/{employeeId}/update-password")

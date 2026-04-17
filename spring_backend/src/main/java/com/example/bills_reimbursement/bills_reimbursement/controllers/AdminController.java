@@ -7,6 +7,7 @@ import com.example.bills_reimbursement.bills_reimbursement.repositories.BillRepo
 import com.example.bills_reimbursement.bills_reimbursement.repositories.UserRepository;
 import com.example.bills_reimbursement.bills_reimbursement.services.DataCleanupScheduler;
 import com.example.bills_reimbursement.bills_reimbursement.services.EmailService;
+import com.example.bills_reimbursement.bills_reimbursement.services.FCMService;
 import com.example.bills_reimbursement.bills_reimbursement.services.FileStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -39,6 +40,9 @@ public class AdminController {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private FCMService fcmService;
 
     @GetMapping("/users")
     public ResponseEntity<List<UserResponseDTO>> getAllUsers() {
@@ -113,6 +117,20 @@ public class AdminController {
         bill.setRemarks(remarks);
         billRepository.save(bill);
 
+        String category = bill.getReimbursementFor();
+        String amt = String.format("%.2f", bill.getAmount());
+
+        userRepository.findByEmployeeId(bill.getOwnerId()).ifPresent(owner -> {
+            if ("REJECTED".equalsIgnoreCase(newStatus)) {
+                String remark = (remarks != null && !remarks.isBlank()) ? remarks : "No remarks provided";
+                fcmService.sendNotification(owner.getFcmToken(), "Bill Rejected ❌",
+                        "Your ₹" + amt + " " + category + " bill was rejected. Remarks: " + remark);
+            } else if ("PAID".equalsIgnoreCase(newStatus)) {
+                fcmService.sendNotification(owner.getFcmToken(), "Bill Paid ✅",
+                        "Your ₹" + amt + " " + category + " bill has been marked as paid.");
+            }
+        });
+
         return ResponseEntity.ok(Map.of(
                 "message", "Bill status updated successfully",
                 "billId", bill.getBillId(),
@@ -136,6 +154,8 @@ public class AdminController {
                     .body(Map.of("error", "User id mismatch"));
         }
 
+        boolean wasApproved = existingUser.isApproved();
+
         if (updatedUserDetails.getName() != null && !updatedUserDetails.getName().isEmpty())
             existingUser.setName(updatedUserDetails.getName());
         if (updatedUserDetails.getEmail() != null && !updatedUserDetails.getEmail().isEmpty()) {
@@ -147,8 +167,13 @@ public class AdminController {
         }
         existingUser.setApproved(updatedUserDetails.isApproved());
 
-
         User savedUser = userRepository.save(existingUser);
+
+        if (!wasApproved && savedUser.isApproved()) {
+            fcmService.sendNotification(savedUser.getFcmToken(), "Account Approved 🎉",
+                    "Your account has been approved. You can now submit reimbursement bills.");
+        }
+
         return ResponseEntity.ok(User.toDto(savedUser));
     }
 
@@ -169,6 +194,11 @@ public class AdminController {
         User user = userOpt.get();
         user.setDisabled(disabled);
         userRepository.save(user);
+
+        if (disabled) {
+            fcmService.sendNotification(user.getFcmToken(), "Account Disabled",
+                    "Your account has been disabled by the admin. Please contact your administrator.");
+        }
 
         String action = disabled ? "disabled" : "enabled";
         return ResponseEntity.ok(Map.of("message", "User has been " + action));

@@ -22,6 +22,11 @@ public class Bill {
     @JsonIgnore
     private User user;
 
+    // Reads the FK column directly — no lazy load needed
+    @Column(name = "employee_id", insertable = false, updatable = false)
+    @JsonIgnore
+    private Integer ownerId;
+
     @JsonProperty("employeeId")
     public Integer getEmployeeId() {
         return user != null ? user.getEmployeeId() : null;

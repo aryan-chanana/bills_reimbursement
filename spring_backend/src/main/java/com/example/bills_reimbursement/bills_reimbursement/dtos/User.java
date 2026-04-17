@@ -43,6 +43,9 @@ public class User implements UserDetails {
     @Column(name = "is_disabled", nullable = false)
     private boolean isDisabled;
 
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @Column(name = "fcm_token")
+    private String fcmToken;
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
