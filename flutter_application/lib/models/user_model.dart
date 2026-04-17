@@ -5,6 +5,7 @@ class User {
   final String password;
   final bool isAdmin;
   final bool isApproved;
+  final bool isDisabled;
 
   User({
     required this.employeeId,
@@ -12,7 +13,8 @@ class User {
     this.email = '',
     required this.password,
     this.isAdmin = false,
-    this.isApproved = false
+    this.isApproved = false,
+    this.isDisabled = false,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class User {
       password: json['password'] ?? '',
       isAdmin: json['admin'] ?? false,
       isApproved: json['approved'] ?? false,
+      isDisabled: json['disabled'] ?? false,
     );
   }
 }

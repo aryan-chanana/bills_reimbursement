@@ -38,6 +38,7 @@ class _AdminDashboardState extends State<AdminDashboard>
   List<Bill> _bills = [];
   List<Bill> _filteredBills = [];
   List<User> _employees = [];
+  List<User> _disabledUsers = [];
   bool _isLoading = true;
   List<User> _pendingUsers = [];
   // final GlobalKey _imageKey = GlobalKey();
@@ -98,7 +99,8 @@ class _AdminDashboardState extends State<AdminDashboard>
 
         if (mounted) {
           setState(() {
-            _employees = employees.where((u) => u.isApproved).toList();
+            _employees = employees.where((u) => u.isApproved && !u.isDisabled).toList();
+            _disabledUsers = employees.where((u) => u.isApproved && u.isDisabled).toList();
             _pendingUsers = employees.where((u) => !u.isApproved).toList();
             _bills = bills;
             _filteredBills = bills;
@@ -181,6 +183,12 @@ class _AdminDashboardState extends State<AdminDashboard>
         foregroundColor: Colors.white,
         title: const Text('Admin Dashboard', style: TextStyle(fontWeight: FontWeight.w600)),
         actions: [
+
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: _showSettingsSheet,
+          ),
 
           PopupMenuButton<String>(
 
@@ -266,6 +274,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                   controller: _tabController,
                   labelColor: Colors.black87,
                   unselectedLabelColor: Colors.white,
+                  dividerColor: Colors.transparent,
                   indicator: ShapeDecoration(
                     color: Colors.white,
                     shape: StadiumBorder(side: BorderSide(color: Colors.white.withOpacity(0.0))),
@@ -454,7 +463,7 @@ class _AdminDashboardState extends State<AdminDashboard>
               itemCount: _filteredBills.length,
               itemBuilder: (context, i) {
                 final bill = _filteredBills[i];
-                final employee = _employees.firstWhere(
+                final employee = [..._employees, ..._disabledUsers].firstWhere(
                       (e) => e.employeeId == bill.employeeId,
                   orElse: () => User(employeeId: 0, name: 'Unknown', password: '', isAdmin: false),
                 );
@@ -526,6 +535,7 @@ class _AdminDashboardState extends State<AdminDashboard>
                 );
               },
             ),
+
         ],
       ),
     );
@@ -863,7 +873,7 @@ class _AdminDashboardState extends State<AdminDashboard>
 
             const SizedBox(height: 12),
 
-            // ✅ USER REQUEST BUTTON
+            // USER REQUEST BUTTON
             if (_pendingUsers.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -882,7 +892,8 @@ class _AdminDashboardState extends State<AdminDashboard>
                 ),
               ),
 
-            // EMPLOYEE LIST
+
+            // ACTIVE EMPLOYEE LIST
             ...employees.map((employee) {
 
               final employeeBills =
@@ -899,27 +910,23 @@ class _AdminDashboardState extends State<AdminDashboard>
                       backgroundColor: Colors.greenAccent,
                       child: Text(
                         employee.name.substring(0, 1).toUpperCase(),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                       ),
                     ),
-                    title: Text(employee.name,
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                    title: Text(
+                      employee.name,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             Text('ID: ${employee.employeeId}'),
-
                             if (employee.isAdmin) ...[
                               const SizedBox(width: 8),
                               Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: Colors.orange.withOpacity(0.2),
                                   borderRadius: BorderRadius.circular(6),
@@ -927,20 +934,9 @@ class _AdminDashboardState extends State<AdminDashboard>
                                 ),
                                 child: const Row(
                                   children: [
-                                    Icon(
-                                      Icons.admin_panel_settings,
-                                      size: 14,
-                                      color: Colors.orange,
-                                    ),
+                                    Icon(Icons.admin_panel_settings, size: 14, color: Colors.orange),
                                     SizedBox(width: 4),
-                                    Text(
-                                      "ADMIN",
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.orange,
-                                      ),
-                                    ),
+                                    Text("ADMIN", style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.orange)),
                                   ],
                                 ),
                               ),
@@ -955,13 +951,16 @@ class _AdminDashboardState extends State<AdminDashboard>
                       onSelected: (value) {
                         if (value == 'edit') {
                           _showEditUserDialog(employee);
-                        } else if (value == 'delete') {
-                          _showDeleteConfirmationDialog(employee);
+                        } else if (value == 'disable') {
+                          _showToggleDisableDialog(employee);
                         }
                       },
-                      itemBuilder: (context) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit')),
-                        PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        const PopupMenuItem(
+                          value: 'disable',
+                          child: Text('Disable', style: TextStyle(color: Colors.red)),
+                        ),
                       ],
                     ),
                   ),
@@ -975,12 +974,25 @@ class _AdminDashboardState extends State<AdminDashboard>
         Positioned(
           right: 18,
           bottom: 18,
-          child: FloatingActionButton.extended(
-            backgroundColor: primaryGreen,
-            icon: const Icon(Icons.person_add, color: Colors.white),
-            label: const Text("Add Employee",
-                style: TextStyle(color: Colors.white)),
-            onPressed: _showCreateUserDialog,
+          child: GestureDetector(
+            onTap: _showCreateUserDialog,
+            child: Container(
+              height: 56,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: primaryGreen,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.person_add, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text('Add Employee', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15)),
+                ],
+              ),
+            ),
           ),
         ),
       ],
@@ -1045,32 +1057,44 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  void _showDeleteConfirmationDialog(User employee) {
+  void _showToggleDisableDialog(User employee) {
+    final willDisable = !employee.isDisabled;
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Confirm Deletion'),
-          content: Text('Are you sure you want to delete the user "${employee.name}"? This action cannot be undone.'),
+          title: Text(willDisable ? 'Disable Employee' : 'Enable Employee'),
+          content: Text(
+            willDisable
+                ? 'Disable "${employee.name}"? They will no longer be able to log in.'
+                : 'Re-enable "${employee.name}"? They will be able to log in again.',
+          ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () async {
-                final success = await ApiService.deleteUser(
+                final success = await ApiService.disableUser(
                   adminId: _adminId!,
                   adminPassword: _adminPassword!,
-                  employeeIdToDelete: employee.employeeId,
+                  employeeId: employee.employeeId,
+                  disabled: willDisable,
                 );
-                Navigator.pop(context);
+                if (mounted) Navigator.pop(context);
                 if (success) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Employee deleted successfully'), backgroundColor: Colors.green));
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('Employee ${willDisable ? 'disabled' : 'enabled'} successfully'),
+                    backgroundColor: Colors.green,
+                  ));
                   _loadData();
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to delete employee'), backgroundColor: Colors.red));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Failed to update employee status'),
+                    backgroundColor: Colors.red,
+                  ));
                 }
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Delete', style: TextStyle(color: Colors.white),),
+              style: ElevatedButton.styleFrom(backgroundColor: willDisable ? Colors.red : Colors.green),
+              child: Text(willDisable ? 'Disable' : 'Enable', style: const TextStyle(color: Colors.white)),
             ),
           ],
         );
@@ -1458,6 +1482,20 @@ class _AdminDashboardState extends State<AdminDashboard>
                             ),
                           ),
                           IconButton(
+                            icon: const Icon(Icons.download, color: Colors.white),
+                            tooltip: 'Download',
+                            onPressed: () async {
+                              final ext = filePath.split('.').last.toLowerCase();
+                              final name = filePath.split('/').last.replaceAll(RegExp(r'\.[^.]+$'), '');
+                              await FileSaver.instance.saveAs(
+                                name: name,
+                                bytes: bytes,
+                                fileExtension: ext,
+                                mimeType: (ext == 'jpg' || ext == 'jpeg') ? MimeType.jpeg : MimeType.png,
+                              );
+                            },
+                          ),
+                          IconButton(
                             icon: const Icon(Icons.close, color: Colors.white),
                             onPressed: () => Navigator.pop(context),
                           ),
@@ -1550,117 +1588,13 @@ class _AdminDashboardState extends State<AdminDashboard>
       );
       final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
 
+      final allKnownUsers = [..._employees, ..._disabledUsers];
       for (final bill in _filteredBills) {
-        final employee = _employees.firstWhere(
+        final employee = allKnownUsers.firstWhere(
           (e) => e.employeeId == bill.employeeId,
           orElse: () => User(employeeId: bill.employeeId, name: 'Unknown', password: ''),
         );
-
-        // Fetch bill receipt — rasterise first page if PDF, use bytes directly if image
-        List<Uint8List> receiptPages = [];
-        try {
-          final resp = await http.get(
-            Uri.parse('${ApiService.baseUrl}/files/${bill.billImagePath}'),
-            headers: authHeaders,
-          );
-          if (resp.statusCode == 200) {
-            if (bill.billImagePath.toLowerCase().endsWith('.pdf')) {
-              await for (final raster in Printing.raster(resp.bodyBytes, dpi: 150)) {
-                receiptPages.add(await raster.toPng());
-              }
-            } else {
-              receiptPages = [resp.bodyBytes];
-            }
-          }
-        } catch (_) {}
-
-        // ── Page 1: info summary + bill receipt ────────────────────
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: const pw.EdgeInsets.all(32),
-            build: (_) {
-              return pw.Column(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  // Title bar
-                  pw.Container(
-                    width: double.infinity,
-                    padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: pw.BoxDecoration(
-                      color: PdfColors.blue800,
-                      borderRadius: pw.BorderRadius.circular(6),
-                    ),
-                    child: pw.Text(
-                      'Bill #${bill.billId}',
-                      style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
-                    ),
-                  ),
-                  pw.SizedBox(height: 10),
-
-                  // Details
-                  _pdfInfoRow('Employee', '${employee.name}  (ID: ${bill.employeeId})'),
-                  _pdfInfoRow('Category', bill.reimbursementFor),
-                  if (bill.billDescription != null && bill.billDescription!.isNotEmpty)
-                    _pdfInfoRow('Description', bill.billDescription!),
-                  _pdfInfoRow('Amount', 'Rs. ${bill.amount.toStringAsFixed(2)}'),
-                  _pdfInfoRow('Bill Date', DateFormat('dd MMM yyyy').format(bill.date)),
-                  _pdfInfoRow('Submitted', bill.createdAt != null ? DateFormat('dd MMM yyyy').format(bill.createdAt!) : '—'),
-                  _pdfInfoRow('Status', bill.status.toUpperCase()),
-                  if (bill.remarks != null && bill.remarks!.isNotEmpty)
-                    _pdfInfoRow('Remarks', bill.remarks!),
-
-                  pw.SizedBox(height: 8),
-
-                  // Document summary
-                  pw.Text('Attached Documents:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
-                  pw.SizedBox(height: 4),
-                  _pdfDocLine('Bill Receipt', bill.billImagePath),
-                  _pdfDocLine('Approval Mail', bill.approvalMailPath),
-                  _pdfDocLine('Payment Proof', bill.paymentProofPath),
-
-                  pw.SizedBox(height: 10),
-                  pw.Divider(color: PdfColors.grey400),
-                  pw.SizedBox(height: 8),
-
-                  // Bill receipt — first page (or unavailable note)
-                  pw.Expanded(
-                    child: pw.Center(
-                      child: receiptPages.isNotEmpty
-                          ? pw.Image(pw.MemoryImage(receiptPages.first), fit: pw.BoxFit.contain)
-                          : pw.Text(
-                              'Bill Receipt: Image unavailable',
-                              style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
-                            ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        );
-
-        // Extra pages for multi-page bill receipt PDFs
-        for (int p = 1; p < receiptPages.length; p++) {
-          final pageImg = pw.MemoryImage(receiptPages[p]);
-          pdf.addPage(pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: const pw.EdgeInsets.all(24),
-            build: (_) => pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text('Bill #${bill.billId} — Bill Receipt (page ${p + 1})',
-                    style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-                pw.SizedBox(height: 12),
-                pw.Expanded(child: pw.Center(child: pw.Image(pageImg, fit: pw.BoxFit.contain))),
-              ],
-            ),
-          ));
-        }
-
-        // ── Subsequent pages: approval mail + payment proof (full page each) ──
-        await _addDocumentPage(pdf, authHeaders, bill.approvalMailPath, 'Approval Mail', bill.billId);
-        await _addDocumentPage(pdf, authHeaders, bill.paymentProofPath, 'Payment Proof', bill.billId);
+        await _addBillToPdf(pdf, bill, employee, authHeaders);
       }
 
       final pdfBytes = await pdf.save();
@@ -1917,6 +1851,226 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
+  Widget _disabledActionBtn({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onPressed,
+  }) {
+    return OutlinedButton(
+      onPressed: onPressed,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color,
+        side: BorderSide(color: color),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14),
+            const SizedBox(width: 4),
+            Text(label, style: const TextStyle(fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showSettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                height: 4,
+                width: 40,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const Text('Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.block, color: Colors.red),
+              title: Text('Disabled Employees (${_disabledUsers.length})'),
+              subtitle: const Text('View, enable or delete disabled accounts'),
+              trailing: const Icon(Icons.chevron_right),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(context);
+                _showDisabledUsersSheet();
+              },
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.delete_sweep, color: Colors.red),
+              title: const Text('Delete Old Data', style: TextStyle(color: Colors.red)),
+              subtitle: const Text('Remove bills older than 2 financial years'),
+              trailing: const Icon(Icons.chevron_right),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(context);
+                _showDeleteOldDataDialog();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDisabledUsersSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.95,
+        minChildSize: 0.4,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 12),
+                height: 4, width: 40,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 8, 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.block, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Disabled Employees (${_disabledUsers.length})',
+                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      icon: const Icon(Icons.picture_as_pdf, size: 16),
+                      label: const Text('Export All'),
+                      style: TextButton.styleFrom(foregroundColor: Colors.red),
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _exportAllDisabledUsersPdf();
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  itemCount: _disabledUsers.length,
+                  itemBuilder: (context, i) {
+                    final user = _disabledUsers[i];
+                    final userBills = _bills.where((b) => b.employeeId == user.employeeId).toList();
+                    final totalAmt = userBills.fold(0.0, (sum, b) => sum + b.amount);
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: Colors.grey,
+                                  child: Text(
+                                    user.name.substring(0, 1).toUpperCase(),
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(user.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                      Text('ID: ${user.employeeId}  •  Bills: ${userBills.length}  •  ₹${totalAmt.toStringAsFixed(2)}',
+                                          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: _disabledActionBtn(
+                                    icon: Icons.picture_as_pdf,
+                                    label: 'Export',
+                                    color: Colors.blue,
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _exportUserBillsPdf(user);
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _disabledActionBtn(
+                                    icon: Icons.person_add_alt_1,
+                                    label: 'Enable',
+                                    color: Colors.green,
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _showToggleDisableDialog(user);
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: _disabledActionBtn(
+                                    icon: Icons.delete_forever,
+                                    label: 'Delete',
+                                    color: Colors.red,
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                      _showDeleteUserDialog(user);
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showUserRequestsDialog() {
     showDialog(
       context: context,
@@ -2145,6 +2299,393 @@ class _AdminDashboardState extends State<AdminDashboard>
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
           ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text("Confirm")),
+        ],
+      ),
+    );
+  }
+
+  /// Adds all pages for a single bill to the PDF document.
+  Future<void> _addBillToPdf(pw.Document pdf, Bill bill, User employee, Map<String, String> authHeaders) async {
+    List<Uint8List> receiptPages = [];
+    try {
+      final resp = await http.get(
+        Uri.parse('${ApiService.baseUrl}/files/${bill.billImagePath}'),
+        headers: authHeaders,
+      );
+      if (resp.statusCode == 200) {
+        if (bill.billImagePath.toLowerCase().endsWith('.pdf')) {
+          await for (final raster in Printing.raster(resp.bodyBytes, dpi: 150)) {
+            receiptPages.add(await raster.toPng());
+          }
+        } else {
+          receiptPages = [resp.bodyBytes];
+        }
+      }
+    } catch (_) {}
+
+    // Page 1: info summary + bill receipt
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (_) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Container(
+              width: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: pw.BoxDecoration(
+                color: PdfColors.blue800,
+                borderRadius: pw.BorderRadius.circular(6),
+              ),
+              child: pw.Text(
+                'Bill #${bill.billId}',
+                style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+              ),
+            ),
+            pw.SizedBox(height: 10),
+            _pdfInfoRow('Employee', '${employee.name}  (ID: ${bill.employeeId})'),
+            _pdfInfoRow('Category', bill.reimbursementFor),
+            if (bill.billDescription != null && bill.billDescription!.isNotEmpty)
+              _pdfInfoRow('Description', bill.billDescription!),
+            _pdfInfoRow('Amount', 'Rs. ${bill.amount.toStringAsFixed(2)}'),
+            _pdfInfoRow('Bill Date', DateFormat('dd MMM yyyy').format(bill.date)),
+            _pdfInfoRow('Submitted', bill.createdAt != null ? DateFormat('dd MMM yyyy').format(bill.createdAt!) : '—'),
+            _pdfInfoRow('Status', bill.status.toUpperCase()),
+            if (bill.remarks != null && bill.remarks!.isNotEmpty)
+              _pdfInfoRow('Remarks', bill.remarks!),
+            pw.SizedBox(height: 8),
+            pw.Text('Attached Documents:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            _pdfDocLine('Bill Receipt', bill.billImagePath),
+            _pdfDocLine('Approval Mail', bill.approvalMailPath),
+            _pdfDocLine('Payment Proof', bill.paymentProofPath),
+            pw.SizedBox(height: 10),
+            pw.Divider(color: PdfColors.grey400),
+            pw.SizedBox(height: 8),
+            pw.Expanded(
+              child: pw.Center(
+                child: receiptPages.isNotEmpty
+                    ? pw.Image(pw.MemoryImage(receiptPages.first), fit: pw.BoxFit.contain)
+                    : pw.Text('Bill Receipt: Image unavailable',
+                        style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // Extra pages for multi-page bill receipt PDFs
+    for (int p = 1; p < receiptPages.length; p++) {
+      final pageImg = pw.MemoryImage(receiptPages[p]);
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (_) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text('Bill #${bill.billId} — Bill Receipt (page ${p + 1})',
+                style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 12),
+            pw.Expanded(child: pw.Center(child: pw.Image(pageImg, fit: pw.BoxFit.contain))),
+          ],
+        ),
+      ));
+    }
+
+    await _addDocumentPage(pdf, authHeaders, bill.approvalMailPath, 'Approval Mail', bill.billId);
+    await _addDocumentPage(pdf, authHeaders, bill.paymentProofPath, 'Payment Proof', bill.billId);
+  }
+
+  Future<void> _exportUserBillsPdf(User user) async {
+    final userBills = _bills.where((b) => b.employeeId == user.employeeId).toList();
+
+    if (userBills.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No bills found for ${user.name}')),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text('Generating PDF…'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final fontRegular = await PdfGoogleFonts.notoSansRegular();
+      final fontBold    = await PdfGoogleFonts.notoSansBold();
+      final pdf = pw.Document(
+        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+      );
+      final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
+
+      for (final bill in userBills) {
+        await _addBillToPdf(pdf, bill, user, authHeaders);
+      }
+
+      final pdfBytes = await pdf.save();
+      final safeName = user.name.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+      final fileName = '${safeName}_Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
+
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+      await FileSaver.instance.saveAs(
+        name: fileName,
+        bytes: Uint8List.fromList(pdfBytes),
+        fileExtension: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF saved to downloads'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportAllDisabledUsersPdf() async {
+    if (_disabledUsers.isEmpty) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(child: Text('Generating PDF for all disabled users…')),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final fontRegular = await PdfGoogleFonts.notoSansRegular();
+      final fontBold    = await PdfGoogleFonts.notoSansBold();
+      final pdf = pw.Document(
+        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+      );
+      final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
+
+      for (final user in _disabledUsers) {
+        final userBills = _bills.where((b) => b.employeeId == user.employeeId).toList();
+        for (final bill in userBills) {
+          await _addBillToPdf(pdf, bill, user, authHeaders);
+        }
+      }
+
+      final pdfBytes = await pdf.save();
+      final fileName = 'Disabled_Users_Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
+
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+
+      await FileSaver.instance.saveAs(
+        name: fileName,
+        bytes: Uint8List.fromList(pdfBytes),
+        fileExtension: 'pdf',
+        mimeType: MimeType.pdf,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PDF saved to downloads'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  void _showDeleteUserDialog(User user) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Employee', style: TextStyle(color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('You are about to permanently delete "${user.name}" (ID: ${user.employeeId}).'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.withOpacity(0.4)),
+              ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(children: [
+                    Icon(Icons.warning_amber, color: Colors.red, size: 18),
+                    SizedBox(width: 6),
+                    Text('This action is irreversible.', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                  ]),
+                  SizedBox(height: 6),
+                  Text(
+                    'All bills and uploaded documents will be permanently deleted. Download their data first if you need a record.',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.download, size: 16),
+            label: const Text('Download Data'),
+            style: OutlinedButton.styleFrom(foregroundColor: Colors.blue),
+            onPressed: () {
+              Navigator.pop(context);
+              _exportUserBillsPdf(user);
+            },
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () async {
+              Navigator.pop(context);
+              final success = await ApiService.deleteUser(
+                adminId: _adminId!,
+                adminPassword: _adminPassword!,
+                employeeIdToDelete: user.employeeId,
+              );
+              if (mounted) {
+                if (success) {
+                  setState(() {
+                    _disabledUsers.removeWhere((u) => u.employeeId == user.employeeId);
+                    _bills.removeWhere((b) => b.employeeId == user.employeeId);
+                    _filteredBills.removeWhere((b) => b.employeeId == user.employeeId);
+                  });
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Employee deleted'), backgroundColor: Colors.green),
+                  );
+                  _loadData();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Failed to delete employee'), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showDeleteOldDataDialog() async {
+    // Fetch count first so the dialog can show how many bills will be deleted
+    Map<String, dynamic>? info;
+    try {
+      info = await ApiService.getOldBillsCount(adminId: _adminId!, adminPassword: _adminPassword!);
+    } catch (_) {}
+
+    if (!mounted) return;
+
+    final int count = info?['count'] ?? 0;
+    final String cutoff = info?['cutoffDate'] ?? '';
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Old Data', style: TextStyle(color: Colors.red)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (count == 0)
+              const Text('No bills older than 2 years found. Nothing to delete.')
+            else ...[
+              Text('Found $count bill(s) submitted before ${cutoff.isNotEmpty ? DateFormat('dd MMM yyyy').format(DateTime.parse(cutoff)) : '2 years ago'}.'),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.withOpacity(0.4)),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      Icon(Icons.warning_amber, color: Colors.red, size: 18),
+                      SizedBox(width: 6),
+                      Text('This action is irreversible.', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                    ]),
+                    SizedBox(height: 6),
+                    Text(
+                      'All matching bills and their uploaded files will be permanently deleted. Export the data first if you need a record.',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          if (count > 0)
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              onPressed: () async {
+                Navigator.pop(context);
+                try {
+                  final result = await ApiService.deleteOldBills(adminId: _adminId!, adminPassword: _adminPassword!);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Deleted ${result['count']} old bill(s) successfully'),
+                      backgroundColor: Colors.green,
+                    ));
+                    _loadData();
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Failed to delete old data: $e'),
+                      backgroundColor: Colors.red,
+                    ));
+                  }
+                }
+              },
+              child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            ),
         ],
       ),
     );

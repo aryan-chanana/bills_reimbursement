@@ -29,12 +29,19 @@ class ApiService {
 
     if (response.statusCode == 200) {
       return User.fromJson(jsonDecode(response.body));
-    }
-    else if (response.statusCode == 403) {
+    } else if (response.statusCode == 401) {
+      // Try to extract the error message written by the custom AuthenticationEntryPoint
+      try {
+        final body = jsonDecode(response.body);
+        final msg = body['error'];
+        if (msg != null && msg.toString().isNotEmpty) throw Exception(msg.toString());
+      } catch (e) {
+        if (e is Exception) rethrow;
+      }
+      return null; // fallback: treat as wrong credentials
+    } else if (response.statusCode == 403) {
       throw Exception("User not permitted to fetch details");
-    }
-    else {
-      // status code 404 or 401
+    } else {
       return null;
     }
   }
@@ -89,6 +96,18 @@ class ApiService {
     final response = await http.delete(
       Uri.parse('$baseUrl/admin/users/$employeeIdToDelete'),
       headers: getAuthHeaders(adminId, adminPassword),
+    );
+    return response.statusCode == 200;
+  }
+
+  static Future<bool> disableUser({required String adminId,
+                                   required String adminPassword,
+                                   required int employeeId,
+                                   required bool disabled}) async {
+    final response = await http.patch(
+      Uri.parse('$baseUrl/admin/users/$employeeId/disable'),
+      headers: getAuthHeaders(adminId, adminPassword),
+      body: jsonEncode({'disabled': disabled}),
     );
     return response.statusCode == 200;
   }
@@ -292,6 +311,24 @@ class ApiService {
       },
     );
     return response.statusCode == 200;
+  }
+
+  static Future<Map<String, dynamic>> getOldBillsCount({required String adminId, required String adminPassword}) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/admin/bills/cleanup/count'),
+      headers: getAuthHeaders(adminId, adminPassword),
+    );
+    if (response.statusCode == 200) return jsonDecode(response.body) as Map<String, dynamic>;
+    throw Exception('Failed to get old bills count');
+  }
+
+  static Future<Map<String, dynamic>> deleteOldBills({required String adminId, required String adminPassword}) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/admin/bills/cleanup'),
+      headers: getAuthHeaders(adminId, adminPassword),
+    );
+    if (response.statusCode == 200) return jsonDecode(response.body) as Map<String, dynamic>;
+    throw Exception('Failed to delete old bills');
   }
 
   static Future<bool> resetPassword(String employeeId, String newPassword) async {

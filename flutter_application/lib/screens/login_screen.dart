@@ -344,9 +344,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       debugPrint("LOGIN / SIGNUP ERROR = $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red),
-        );
+        final msg = e.toString().replaceFirst('Exception: ', '');
+        _showErrorDialog(msg);
       }
     } finally {
       if (mounted) {

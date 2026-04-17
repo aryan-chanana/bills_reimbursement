@@ -18,6 +18,7 @@ import '../services/api_service.dart';
 import '../services/compression_service.dart';
 import '../services/offline_queue_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:file_saver/file_saver.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -993,6 +994,20 @@ class _UserDashboardState extends State<UserDashboard> {
                             child: Center(
                               child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white)),
                             ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.download, color: Colors.white),
+                            tooltip: 'Download',
+                            onPressed: () async {
+                              final ext = filePath.split('.').last.toLowerCase();
+                              final name = filePath.split('/').last.replaceAll(RegExp(r'\.[^.]+$'), '');
+                              await FileSaver.instance.saveAs(
+                                name: name,
+                                bytes: bytes,
+                                fileExtension: ext,
+                                mimeType: (ext == 'jpg' || ext == 'jpeg') ? MimeType.jpeg : MimeType.png,
+                              );
+                            },
                           ),
                           IconButton(
                             icon: const Icon(Icons.close, color: Colors.white),
