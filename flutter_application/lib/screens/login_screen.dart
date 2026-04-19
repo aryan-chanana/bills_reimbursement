@@ -59,41 +59,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // Animated Icon
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 300),
-                        child: Icon(
-                          _isSignUp ? Icons.person_add_alt_1 : Icons.login,
-                          key: ValueKey(_isSignUp),
-                          size: 90,
-                          color: Colors.blueAccent,
-                        ),
-                      ),
+                      // Logo
+                      Image.asset('assets/images/splash_icon.png', width: 90, height: 90),
 
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 10),
 
-                      // Title
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: Text(
-                          _isSignUp ? "Create Account" : "Welcome",
-                          key: ValueKey(_isSignUp),
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
+                      // App name
+                      RichText(
+                        text: const TextSpan(
+                          style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: 1),
+                          children: [
+                            TextSpan(text: 'Expen', style: TextStyle(color: Color(0xFF1565C0))),
+                            TextSpan(text: 'Z', style: TextStyle(color: Color(0xFFF9A825))),
+                          ],
                         ),
                       ),
 
                       const SizedBox(height: 4),
-                      Text(
-                        _isSignUp
-                            ? "Fill details to get started"
-                            : "Login to continue",
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
+
+                      // Subtitle
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 250),
+                        child: Text(
+                          _isSignUp ? "Create your account" : "Sign in to continue",
+                          key: ValueKey(_isSignUp),
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade500),
                         ),
                       ),
 

@@ -471,9 +471,18 @@ class _AdminDashboardState extends State<AdminDashboard>
           // Bills (Glass Cards)
           if (_filteredBills.isEmpty)
             _glassCard(
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 18),
-                child: Center(child: Text('No bills match the current filters.')),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.receipt_long_outlined, size: 56, color: primaryGreen.withOpacity(0.3)),
+                    const SizedBox(height: 12),
+                    Text('No bills found', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+                    const SizedBox(height: 4),
+                    Text('Try adjusting your filters', style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+                  ],
+                ),
               ),
             )
           else
@@ -491,64 +500,77 @@ class _AdminDashboardState extends State<AdminDashboard>
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: _glassCard(
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    padding: EdgeInsets.zero,
                     child: InkWell(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(20),
                       onTap: () => _showAdminBillDetailsModal(bill, employee),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(bill.status).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(12),
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // left status bar
+                            Container(
+                              width: 4,
+                              decoration: BoxDecoration(
+                                color: _getStatusColor(bill.status),
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(20),
+                                  bottomLeft: Radius.circular(20),
+                                ),
+                              ),
                             ),
-                            child: Icon(Icons.receipt_long, color: _getStatusColor(bill.status), size: 28),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('${employee.name} (${employee.employeeId}) • ${bill.reimbursementFor}',
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-                                const SizedBox(height: 6),
-                                Row(children: [
-                                  const Icon(Icons.currency_rupee, size: 16, color: Colors.green),
-                                  const SizedBox(width: 4),
-                                  Expanded(child: Text('₹${bill.amount.toStringAsFixed(2)}')),
-                                ]),
-                                const SizedBox(height: 2),
-                                Row(children: [
-                                  const Icon(Icons.date_range, size: 16, color: Colors.blue),
-                                  const SizedBox(width: 4),
-                                  Expanded(child: Text(DateFormat('dd MMM yyyy').format(bill.date))),
-                                ]),
-                                const SizedBox(height: 2),
-                                Row(children: [
-                                  const Icon(Icons.access_time, size: 16, color: Colors.orange),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text('Submitted: ${DateFormat('dd MMM yyyy').format(bill.createdAt!)}'),
-                                  ),
-                                ]),
-                              ],
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 14, 16, 14),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: _getStatusColor(bill.status).withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: Icon(Icons.receipt_long, color: _getStatusColor(bill.status), size: 28),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text('${employee.name} (${employee.employeeId}) • ${bill.reimbursementFor}',
+                                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+                                          const SizedBox(height: 6),
+                                          Row(children: [
+                                            Icon(Icons.currency_rupee, size: 16, color: const Color(0xFF10B981)),
+                                            const SizedBox(width: 4),
+                                            Expanded(child: Text('₹${bill.amount.toStringAsFixed(2)}')),
+                                          ]),
+                                          const SizedBox(height: 2),
+                                          Row(children: [
+                                            Icon(Icons.date_range, size: 16, color: const Color(0xFF3B82F6)),
+                                            const SizedBox(width: 4),
+                                            Expanded(child: Text(DateFormat('dd MMM yyyy').format(bill.date))),
+                                          ]),
+                                          const SizedBox(height: 2),
+                                          Row(children: [
+                                            Icon(Icons.access_time, size: 16, color: const Color(0xFFF59E0B)),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text('Submitted: ${DateFormat('dd MMM yyyy').format(bill.createdAt!)}'),
+                                            ),
+                                          ]),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    _statusPill(bill.status),
+                                  ],
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(bill.status),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: Text(
-                              bill.status.toUpperCase(),
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -831,13 +853,18 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Widget _statusPill(String status) {
+    final color = _getStatusColor(status);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
-        color: _getStatusColor(status),
-        borderRadius: BorderRadius.circular(20),
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: color.withOpacity(0.4)),
       ),
-      child: Text(status.toUpperCase(), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+      ),
     );
   }
 
@@ -1137,14 +1164,10 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'approved':
-        return Colors.green;
-      case 'rejected':
-        return Colors.red;
-      case 'paid':
-        return Colors.blue;
-      default:
-        return Colors.orange;
+      case 'approved': return const Color(0xFF10B981);
+      case 'rejected': return const Color(0xFFEF4444);
+      case 'paid':     return const Color(0xFF3B82F6);
+      default:         return const Color(0xFFF59E0B);
     }
   }
 
