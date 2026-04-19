@@ -1,16 +1,21 @@
 flutter_native_splash:
-  # General settings for all platforms, except Android 12+.
-  color: "#bbdefb"  # Match the app's light blue background color.
-#  image: "assets/images/icon.png"  # Updated center image path.
-  android_gravity: center  # Center the image on the screen.
-  fullscreen: true  # Hide the notification bar.
+  color: "#0D47A1"
+  image: "assets/images/splash_icon.png"
+  android_gravity: center
+  fullscreen: true
+  branding: "assets/images/branding_expenz.png"
+  branding_mode: bottom
 
-  # Branding settings to display text at the bottom.
-#  branding: "assets/images/branding.png"  # Image containing "Bills Reimbursement" text.
-#  branding_mode: bottom  # Position the branding at the bottom.
-
-  # Android 12+ configuration for modern Android versions.
   android_12:
-    color: "#bbdefb"  # Consistent background color.
-#    image: "assets/images/icon.png"  # Update path for Android 12+ icon.
-#    branding: "assets/images/branding.png"  # Specific branding text size for Android 12.
+    color: "#0D47A1"
+    image: "assets/images/splash_icon.png"
+    branding: "assets/images/branding_expenz.png"
+
+# ── BACKUP (original plain blue, no image) ──────────────────────
+# flutter_native_splash:
+#   color: "#bbdefb"
+#   android_gravity: center
+#   fullscreen: true
+#   android_12:
+#     color: "#bbdefb"
+# ────────────────────────────────────────────────────────────────
