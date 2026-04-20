@@ -176,20 +176,27 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  Widget _statusPill(String status) {
-    Color c;
+  Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
-      case 'approved': c = Colors.green; break;
-      case 'rejected': c = Colors.red; break;
-      case 'paid': c = Colors.blue; break;
-      default: c = Colors.orange;
+      case 'approved': return const Color(0xFF10B981);
+      case 'rejected': return const Color(0xFFEF4444);
+      case 'paid':     return const Color(0xFF3B82F6);
+      default:         return const Color(0xFFF59E0B);
     }
+  }
+
+  Widget _statusPill(String status) {
+    final color = _getStatusColor(status);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-      decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(30)),
-      alignment: Alignment.center,
-      child: Text(status.toUpperCase(),
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Text(
+        status.toUpperCase(),
+        style: TextStyle(color: color, fontWeight: FontWeight.w700, fontSize: 11, letterSpacing: 0.5),
       ),
     );
   }
@@ -327,7 +334,18 @@ class _UserDashboardState extends State<UserDashboard> {
                 child: _isLoading
                     ? const Center(child: CircularProgressIndicator())
                     : _filteredBills.isEmpty
-                    ? const Center(child: Text('No bills found.'))
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.receipt_long_outlined, size: 64, color: kPrimaryBlue.withOpacity(0.3)),
+                            const SizedBox(height: 12),
+                            Text('No bills found', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+                            const SizedBox(height: 4),
+                            Text('Tap + to submit your first bill', style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+                          ],
+                        ),
+                      )
                     : ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                   itemCount: _filteredBills.length,
@@ -336,13 +354,31 @@ class _UserDashboardState extends State<UserDashboard> {
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _glassCard(
-                        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                        padding: EdgeInsets.zero,
                         child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(20),
                           onTap: () => _showBillDetailsModal(bill),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
+                          child: IntrinsicHeight(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                // left status bar
+                                Container(
+                                  width: 4,
+                                  decoration: BoxDecoration(
+                                    color: _getStatusColor(bill.status),
+                                    borderRadius: const BorderRadius.only(
+                                      topLeft: Radius.circular(20),
+                                      bottomLeft: Radius.circular(20),
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      children: [
                               // icon
                               Container(
                                 padding: const EdgeInsets.all(10),
@@ -409,14 +445,17 @@ class _UserDashboardState extends State<UserDashboard> {
                               ),
 
                               const SizedBox(width: 8),
-
-                              // centered status pill
                               _statusPill(bill.status),
                             ],
                           ),
                         ),
                       ),
-                    );
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                   },
                 ),
               ),
@@ -802,15 +841,6 @@ class _UserDashboardState extends State<UserDashboard> {
         ],
       ),
     );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'approved': return Colors.green;
-      case 'rejected': return Colors.red;
-      case 'paid': return Colors.blue;
-      default: return Colors.orange;
-    }
   }
 
   void _initDefaultMonthRange() {
