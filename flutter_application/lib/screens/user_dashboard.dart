@@ -2,12 +2,9 @@ import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -18,8 +15,9 @@ import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../services/compression_service.dart';
 import '../services/offline_queue_service.dart';
+import '../services/bill_file_cache.dart';
 import 'package:flutter/foundation.dart';
-import 'package:file_saver/file_saver.dart';
+import '../services/bill_download_service.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -40,12 +38,13 @@ class _UserDashboardState extends State<UserDashboard> {
   List<Bill> _filteredBills = [];
   bool _isLoading = true;
   double _monthlyTotal = 0.0;
-  Map<String, Uint8List> _imageCache = {};
   bool _isAdmin = false;
 
   String _selectedFilter = 'All';
   DateTime? _startDate;
   DateTime? _endDate;
+  // 'billDate' filters on bill.date; 'submissionDate' filters on bill.createdAt
+  String _dateFilterField = 'billDate';
 
   String _selectedStatus = 'All';
   final List<String> _statusOptions = ['All', 'Pending', 'Approved', 'Rejected', 'Paid'];
@@ -136,11 +135,16 @@ class _UserDashboardState extends State<UserDashboard> {
       _initDefaultMonthRange();
     }
 
+    final startOfDay = DateTime(
+        _startDate!.year, _startDate!.month, _startDate!.day);
+    final endOfDay = DateTime(
+        _endDate!.year, _endDate!.month, _endDate!.day, 23, 59, 59, 999);
+
     List<Bill> filtered = _bills.where((b) {
-      final submittedAt = b.createdAt!;
-      final inRange = !submittedAt.isBefore(_startDate!) &&
-          !submittedAt.isAfter(_endDate!);
-      return inRange;
+      final field = _dateFilterField == 'submissionDate'
+          ? (b.createdAt ?? b.date)
+          : b.date;
+      return !field.isBefore(startOfDay) && !field.isAfter(endOfDay);
     }).toList();
 
 
@@ -213,7 +217,13 @@ class _UserDashboardState extends State<UserDashboard> {
         foregroundColor: Colors.white,
         title: Text('${_userName.toUpperCase()}, $_employeeId', overflow: TextOverflow.ellipsis),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBills),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              BillFileCache.instance.clear();
+              _loadBills();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.lock_reset_rounded),
             tooltip: "Change Password",
@@ -318,7 +328,14 @@ class _UserDashboardState extends State<UserDashboard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        const Text("Total", style: TextStyle(fontSize: 14, color: Colors.grey)),
+                        Text(
+                          _isDefaultMonthRange()
+                              ? "This month's total"
+                              : _isShowAllRange()
+                                  ? "Total (all bills)"
+                                  : "Total (filtered)",
+                          style: const TextStyle(fontSize: 14, color: Colors.grey),
+                        ),
                         const SizedBox(height: 6),
                         Text('₹${totalAmt.toStringAsFixed(2)}',
                             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kPrimaryBlue)),
@@ -340,9 +357,23 @@ class _UserDashboardState extends State<UserDashboard> {
                           children: [
                             Icon(Icons.receipt_long_outlined, size: 64, color: kPrimaryBlue.withOpacity(0.3)),
                             const SizedBox(height: 12),
-                            Text('No bills found', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+                            Text(
+                              _isShowAllRange()
+                                  ? 'No bills yet'
+                                  : 'No bills in ${_activeRangeLabel()}',
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
+                              textAlign: TextAlign.center,
+                            ),
                             const SizedBox(height: 4),
-                            Text('Tap + to submit your first bill', style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+                            if (_isShowAllRange())
+                              Text('Tap + to submit your first bill',
+                                  style: TextStyle(fontSize: 13, color: Colors.grey.shade400))
+                            else
+                              TextButton.icon(
+                                icon: const Icon(Icons.event_available, size: 16),
+                                label: const Text('Show all bills'),
+                                onPressed: _resetToShowAll,
+                              ),
                           ],
                         ),
                       )
@@ -763,12 +794,12 @@ class _UserDashboardState extends State<UserDashboard> {
                                     final password = prefs.getString('password');
 
                                     // Compress new files before upload (PDFs pass through unchanged)
-                                    final File? compressedBill = await CompressionService.compressNullable(
-                                        newBillFile?.path != null ? File(newBillFile!.path!) : null);
-                                    final File? compressedApproval = await CompressionService.compressNullable(
-                                        newApprovalFile?.path != null ? File(newApprovalFile!.path!) : null);
-                                    final File? compressedPayment = await CompressionService.compressNullable(
-                                        newPaymentFile?.path != null ? File(newPaymentFile!.path!) : null);
+                                    final PlatformFile? compressedBill =
+                                        await CompressionService.compressNullable(newBillFile);
+                                    final PlatformFile? compressedApproval =
+                                        await CompressionService.compressNullable(newApprovalFile);
+                                    final PlatformFile? compressedPayment =
+                                        await CompressionService.compressNullable(newPaymentFile);
 
                                     final success = await ApiService.editBill(
                                       employeeId: _employeeId.toString(),
@@ -849,6 +880,49 @@ class _UserDashboardState extends State<UserDashboard> {
     _endDate   = DateTime(now.year, now.month + 1, 0);
   }
 
+  bool _isShowAllRange() =>
+      _startDate != null && _startDate!.year == 2020 && _endDate != null;
+
+  bool _isDefaultMonthRange() {
+    // Null is the pre-init state; _applyFilters immediately rewrites it back
+    // to the current month, so semantically null IS the default month.
+    if (_startDate == null || _endDate == null) return true;
+    if (_isShowAllRange()) return false;
+    final now = DateTime.now();
+    final firstOfMonth = DateTime(now.year, now.month, 1);
+    final lastOfMonth  = DateTime(now.year, now.month + 1, 0);
+    return _startDate!.year  == firstOfMonth.year  &&
+           _startDate!.month == firstOfMonth.month &&
+           _startDate!.day   == firstOfMonth.day   &&
+           _endDate!.year    == lastOfMonth.year   &&
+           _endDate!.month   == lastOfMonth.month  &&
+           _endDate!.day     == lastOfMonth.day;
+  }
+
+  String _activeRangeLabel() {
+    if (_isDefaultMonthRange()) {
+      return 'this month · ${DateFormat('MMM yyyy').format(_startDate ?? DateTime.now())}';
+    }
+    if (_isShowAllRange()) return 'All dates';
+    if (_startDate!.year == _endDate!.year &&
+        _startDate!.month == _endDate!.month &&
+        _startDate!.day == _endDate!.day) {
+      return DateFormat('d MMM yyyy').format(_endDate!);
+    }
+    final sameYear = _startDate!.year == _endDate!.year;
+    final start = DateFormat(sameYear ? 'd MMM' : 'd MMM yyyy').format(_startDate!);
+    final end   = DateFormat('d MMM yyyy').format(_endDate!);
+    return '$start – $end';
+  }
+
+  void _resetToShowAll() {
+    setState(() {
+      _startDate = DateTime(2020);
+      _endDate = DateTime.now();
+    });
+    _applyFilters();
+  }
+
   void _openCustomDatePicker() {
     showDialog(
       context: context,
@@ -856,101 +930,206 @@ class _UserDashboardState extends State<UserDashboard> {
       builder: (_) {
         DateTime? start;
         DateTime? end;
+        String tempField = _dateFilterField;
 
         return Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 60),
           child: StatefulBuilder(
             builder: (context, setState) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // HEADER
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        Text("Select range",
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              final bool hasStart = start != null;
+              final bool hasEnd = end != null;
+              final bool canSave = hasStart;
 
-                        // 🔁 SHOW ALL moved here
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            setState(() {
+              IconData statusIcon;
+              Color statusBg;
+              Color statusFg;
+              String statusText;
+              if (!hasStart) {
+                statusIcon = Icons.touch_app_outlined;
+                statusBg = const Color(0xFFEFF6FF);
+                statusFg = const Color(0xFF1D4ED8);
+                statusText = "Tap a date to set the start";
+              } else if (!hasEnd) {
+                statusIcon = Icons.east;
+                statusBg = const Color(0xFFFFF7ED);
+                statusFg = const Color(0xFFB45309);
+                statusText =
+                    "Start: ${DateFormat('dd MMM yyyy').format(start!)} — tap another day for a range, or Save for this day only";
+              } else {
+                statusIcon = Icons.check_circle_outline;
+                statusBg = const Color(0xFFECFDF5);
+                statusFg = const Color(0xFF047857);
+                statusText =
+                    "${DateFormat('dd MMM yyyy').format(start!)}  →  ${DateFormat('dd MMM yyyy').format(end!)}";
+              }
+
+              return SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // HEADER
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.close),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          Text("Select range",
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+
+                          // 🔁 SHOW ALL moved here
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
                               _startDate = DateTime(2020);
                               _endDate = DateTime.now();
-                            });
-                            _applyFilters();
-                          },
-                          child: Text("Show All"),
+                              _dateFilterField = tempField;
+                              _applyFilters();
+                            },
+                            child: Text("Show All"),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      // FILTER-BY TOGGLE
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'billDate', label: Text('Bill date')),
+                          ButtonSegment(value: 'submissionDate', label: Text('Submission')),
+                        ],
+                        selected: {tempField},
+                        onSelectionChanged: (s) => setState(() => tempField = s.first),
+                        showSelectedIcon: false,
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // STATUS / INSTRUCTION BANNER
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: statusBg,
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(statusIcon, size: 18, color: statusFg),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                statusText,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: statusFg,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-                    const SizedBox(height: 8),
+                      const SizedBox(height: 12),
 
-                    // CALENDAR
-                    TableCalendar(
-                      focusedDay: start != null ? start! : DateTime.now(),
-                      firstDay: DateTime(2020),
-                      lastDay: DateTime.now(),
-                      rangeStartDay: start,
-                      rangeEndDay: end,
-                      onRangeSelected: (s, e, f) {
-                        setState(() {
-                          start = s;
-                          end = e;
-                        });
-                      },
-                      rangeSelectionMode: RangeSelectionMode.enforced,
-                      headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
-                    ),
+                      // CALENDAR
+                      TableCalendar(
+                        focusedDay: start != null ? start! : DateTime.now(),
+                        firstDay: DateTime(2020),
+                        lastDay: DateTime.now(),
+                        rangeStartDay: start,
+                        rangeEndDay: end,
+                        onRangeSelected: (s, e, f) {
+                          setState(() {
+                            start = s;
+                            end = e;
+                          });
+                        },
+                        rangeSelectionMode: RangeSelectionMode.enforced,
+                        headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
+                        calendarBuilders: CalendarBuilders(
+                          rangeHighlightBuilder: (context, day, isWithinRange) {
+                            if (!isWithinRange) return null;
+                            final isStart = isSameDay(day, start);
+                            final isEnd = isSameDay(day, end);
+                            final roundLeft = isStart || day.weekday == DateTime.sunday;
+                            final roundRight = isEnd || day.weekday == DateTime.saturday;
+                            return LayoutBuilder(
+                              builder: (_, constraints) {
+                                final shorter = constraints.maxHeight < constraints.maxWidth
+                                    ? constraints.maxHeight
+                                    : constraints.maxWidth;
+                                final h = shorter - 12;
+                                final r = Radius.circular(h / 2);
+                                return Center(
+                                  child: Container(
+                                    margin: EdgeInsetsDirectional.only(
+                                      start: isStart ? constraints.maxWidth * 0.5 : 0,
+                                      end: isEnd ? constraints.maxWidth * 0.5 : 0,
+                                    ),
+                                    height: h,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFBBDDFF),
+                                      borderRadius: BorderRadius.horizontal(
+                                        left: roundLeft ? r : Radius.zero,
+                                        right: roundRight ? r : Radius.zero,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
 
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
-                    // FOOTER BUTTONS
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        TextButton.icon(
-                          icon: Icon(Icons.clear),
-                          label: Text("Clear"),
-                          onPressed: () {
-                            setState(() {
-                              start = null;
-                              end = null;
+                      // FOOTER BUTTONS
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton.icon(
+                            icon: Icon(Icons.clear),
+                            label: Text("Clear"),
+                            onPressed: () {
                               _startDate = null;
                               _endDate = null;
-                            });
-                            Navigator.pop(context);
-                            _applyFilters();
-                          },
-                        ),
-
-                        // 🔁 SAVE moved here
-                        ElevatedButton.icon(
-                          icon: Icon(Icons.save),
-                          label: Text("Save"),
-                          onPressed: () {
-                            if (start != null && end != null) {
+                              _dateFilterField = tempField;
                               Navigator.pop(context);
-                              setState(() {
-                                _startDate = start!;
-                                _endDate = end!;
-                              });
                               _applyFilters();
-                            }
-                          },
-                        ),
-                      ],
-                    )
-                  ],
+                            },
+                          ),
+
+                          // 🔁 SAVE moved here
+                          ElevatedButton.icon(
+                            icon: Icon(Icons.save),
+                            label: Text(canSave
+                                ? (hasEnd ? "Save" : "Save (single day)")
+                                : "Pick a date"),
+                            onPressed: canSave
+                                ? () {
+                                    final effectiveEnd = end ?? start!;
+                                    Navigator.pop(context);
+                                    _startDate = start!;
+                                    _endDate = effectiveEnd;
+                                    _dateFilterField = tempField;
+                                    _applyFilters();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
                 ),
               );
             },
@@ -965,11 +1144,13 @@ class _UserDashboardState extends State<UserDashboard> {
     final userId = prefs.getInt('employee_id')?.toString() ?? '';
     final password = prefs.getString('password') ?? '';
 
-    final url = '${ApiService.baseUrl}/files/$filePath';
     final isPdf = filePath.toLowerCase().endsWith('.pdf');
 
-    final response = await http.get(Uri.parse(url), headers: ApiService.getAuthHeaders(userId, password));
-    if (response.statusCode != 200) {
+    final bytes = await BillFileCache.instance.fetch(
+      filePath,
+      headers: ApiService.getAuthHeaders(userId, password),
+    );
+    if (bytes == null) {
       if (!mounted) return;
       showDialog(
         context: context,
@@ -982,20 +1163,18 @@ class _UserDashboardState extends State<UserDashboard> {
       return;
     }
 
-    final bytes = response.bodyBytes;
-
     if (!mounted) return;
 
     if (isPdf) {
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/${filePath.split('/').last}');
-      await tempFile.writeAsBytes(bytes);
-      await OpenFilex.open(tempFile.path);
+      await BillDownloadService.openBytes(
+        bytes,
+        filePath.split('/').last,
+        'application/pdf',
+      );
       return;
     }
 
     // Image viewer
-    _imageCache[url] = bytes;
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -1039,13 +1218,17 @@ class _UserDashboardState extends State<UserDashboard> {
                             icon: const Icon(Icons.download, color: Colors.white),
                             tooltip: 'Download',
                             onPressed: () async {
-                              final ext = filePath.split('.').last.toLowerCase();
-                              final name = filePath.split('/').last.replaceAll(RegExp(r'\.[^.]+$'), '');
-                              await FileSaver.instance.saveAs(
-                                name: name,
-                                bytes: bytes,
-                                fileExtension: ext,
-                                mimeType: (ext == 'jpg' || ext == 'jpeg') ? MimeType.jpeg : MimeType.png,
+                              final fileName = filePath.split('/').last;
+                              final ext = fileName.split('.').last.toLowerCase();
+                              final mime = ext == 'jpg' || ext == 'jpeg'
+                                  ? 'image/jpeg'
+                                  : ext == 'pdf'
+                                      ? 'application/pdf'
+                                      : 'image/png';
+                              await BillDownloadService.downloadBytes(
+                                bytes,
+                                fileName,
+                                mime,
                               );
                             },
                           ),

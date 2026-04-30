@@ -466,7 +466,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                 if (result != null) {
                   setState(() => entry.billFile = result.files.first);
                   final f = result.files.first;
-                  if (f.extension?.toLowerCase() != 'pdf' && f.path != null) {
+                  if (!kIsWeb && f.extension?.toLowerCase() != 'pdf' && f.path != null) {
                     _runOcr(File(f.path!));
                   }
                 }
@@ -484,7 +484,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                       path: pickedFile.path,
                     );
                   });
-                  _runOcr(File(pickedFile.path));
+                  if (!kIsWeb) _runOcr(File(pickedFile.path));
                 } on PlatformException catch (e) {
                   if (e.code == 'camera_access_denied' && mounted) {
                     showDialog(
@@ -723,7 +723,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
         else if (type == 'payment') _paymentProofFile = file;
       });
 
-      if (type == 'bill' && file.extension?.toLowerCase() != 'pdf' && file.path != null) {
+      if (!kIsWeb && type == 'bill' && file.extension?.toLowerCase() != 'pdf' && file.path != null) {
         _runOcr(File(file.path!));
       }
     }
@@ -742,7 +742,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
         );
       });
 
-      _runOcr(File(pickedFile.path));
+      if (!kIsWeb) _runOcr(File(pickedFile.path));
 
     } on PlatformException catch (e) {
       if (e.code == 'camera_access_denied') {
@@ -814,7 +814,8 @@ class _AddBillScreenState extends State<AddBillScreen> {
         // Validate all entries
         for (int i = 0; i < _batchEntries.length; i++) {
           final entry = _batchEntries[i];
-          if (entry.billFile == null || entry.billFile!.path == null) {
+          if (entry.billFile == null ||
+              (entry.billFile!.path == null && entry.billFile!.bytes == null)) {
             _showErrorDialog("Please upload a bill receipt for Bill ${i + 1}.");
             return;
           }
@@ -840,14 +841,15 @@ class _AddBillScreenState extends State<AddBillScreen> {
         }
 
         // Compress shared approval mail once
-        File? sharedApproval = await CompressionService.compressNullable(
-            _approvalMailFile?.path != null ? File(_approvalMailFile!.path!) : null);
+        PlatformFile? sharedApproval =
+            await CompressionService.compressNullable(_approvalMailFile);
 
         int successCount = 0;
         for (final entry in _batchEntries) {
-          File billFile = await CompressionService.compressFile(File(entry.billFile!.path!));
-          File? entryPayment = await CompressionService.compressNullable(
-              entry.paymentProofFile?.path != null ? File(entry.paymentProofFile!.path!) : null);
+          PlatformFile billFile =
+              await CompressionService.compressFile(entry.billFile!);
+          PlatformFile? entryPayment =
+              await CompressionService.compressNullable(entry.paymentProofFile);
           final ok = await ApiService.addBill(
             employeeId: employeeId,
             password: password,
@@ -878,7 +880,8 @@ class _AddBillScreenState extends State<AddBillScreen> {
       }
 
       // ── SINGLE MODE ─────────────────────────────────────────────
-      if (_billFile == null || _billFile!.path == null) {
+      if (_billFile == null ||
+          (_billFile!.path == null && _billFile!.bytes == null)) {
         _showErrorDialog("Please upload the main bill receipt.");
         return;
       }
@@ -891,21 +894,27 @@ class _AddBillScreenState extends State<AddBillScreen> {
 
       final bool backendAvailable = await ConnectivityService.isBackendAvailable();
 
-      File mainBill = await CompressionService.compressFile(File(_billFile!.path!));
-      File? approvalMail = await CompressionService.compressNullable(
-          _approvalMailFile?.path != null ? File(_approvalMailFile!.path!) : null);
-      File? paymentProof = await CompressionService.compressNullable(
-          _paymentProofFile?.path != null ? File(_paymentProofFile!.path!) : null);
+      PlatformFile mainBill = await CompressionService.compressFile(_billFile!);
+      PlatformFile? approvalMail =
+          await CompressionService.compressNullable(_approvalMailFile);
+      PlatformFile? paymentProof =
+          await CompressionService.compressNullable(_paymentProofFile);
 
       if (!backendAvailable) {
-        _showErrorDialog("Unable to connect to server. Bill saved locally and will auto-upload when connected.");
         setState(() => _isLoading = false);
 
+        if (kIsWeb || mainBill.path == null) {
+          // Offline queue relies on a persistent filesystem path — skip on web.
+          _showErrorDialog("Unable to connect to server. Please try again when connected.");
+          return;
+        }
+
+        _showErrorDialog("Unable to connect to server. Bill saved locally and will auto-upload when connected.");
         await OfflineQueueService.queueBill(
           category: _selectedCategory,
           amount: double.parse(_amountController.text),
           date: _selectedDate,
-          image: XFile(mainBill.path),
+          image: XFile(mainBill.path!),
         );
         return;
       }

@@ -1,29 +1,26 @@
 import 'dart:io';
-import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 class CompressionService {
-  // Max dimension (width or height). Images larger than this are scaled down.
   static const int _maxDimension = 1920;
-  // JPEG quality 0–100. 72 gives a good size/quality balance for documents.
   static const int _quality = 72;
 
-  /// Compresses an image file and returns the compressed [File].
-  /// PDFs are returned unchanged.
-  ///
-  /// Uses [compressWithList] (byte-based) instead of [compressAndGetFile]
-  /// (path-based) to reliably handle camera images, content URIs, and
-  /// HEIC files across all Android/iOS sources.
-  static Future<File> compressFile(File file) async {
-    final ext = p.extension(file.path).toLowerCase();
-
-    // PDFs cannot be compressed with this library — return as-is
+  /// Compresses an image [PlatformFile] and returns a new one pointing at the
+  /// compressed artifact. PDFs and web uploads are returned unchanged — the
+  /// former because this library can't compress them, the latter because
+  /// `dart:io` isn't usable in the browser.
+  static Future<PlatformFile> compressFile(PlatformFile file) async {
+    final ext = p.extension(file.name).toLowerCase();
     if (ext == '.pdf') return file;
+    if (kIsWeb) return file;
+    if (file.path == null) return file;
 
     try {
-      final Uint8List originalBytes = await file.readAsBytes();
+      final Uint8List originalBytes = await File(file.path!).readAsBytes();
 
       final Uint8List compressedBytes = await FlutterImageCompress.compressWithList(
         originalBytes,
@@ -37,15 +34,18 @@ class CompressionService {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final tempFile = File('${tempDir.path}/${timestamp}_compressed.jpg');
       await tempFile.writeAsBytes(compressedBytes);
-      return tempFile;
+
+      return PlatformFile(
+        name: '${timestamp}_compressed.jpg',
+        size: compressedBytes.length,
+        path: tempFile.path,
+      );
     } catch (_) {
-      // Fallback: return original if compression fails for any reason
       return file;
     }
   }
 
-  /// Convenience: compress a nullable [File], returning null if input is null.
-  static Future<File?> compressNullable(File? file) async {
+  static Future<PlatformFile?> compressNullable(PlatformFile? file) async {
     if (file == null) return null;
     return compressFile(file);
   }

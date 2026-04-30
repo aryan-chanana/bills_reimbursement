@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/bill_model.dart';
@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 class ApiService {
   static const String baseUrl = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://192.168.1.3:8081'
+      defaultValue: 'http://192.168.102.150:8081'
   );
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
@@ -114,13 +114,33 @@ class ApiService {
     return response.statusCode == 200;
   }
 
+  /// Attaches a [PlatformFile] to a multipart request using whichever of
+  /// `bytes` / `path` is available — web picks always carry `bytes`, mobile
+  /// picks carry `path`.
+  static Future<void> _attachMultipartFile(
+      http.MultipartRequest request, String field, PlatformFile file) async {
+    if (file.bytes != null) {
+      request.files.add(http.MultipartFile.fromBytes(
+        field,
+        file.bytes!,
+        filename: file.name,
+      ));
+    } else if (file.path != null && !kIsWeb) {
+      request.files.add(
+        await http.MultipartFile.fromPath(field, file.path!, filename: file.name),
+      );
+    } else {
+      throw StateError('PlatformFile "${file.name}" has no bytes or path.');
+    }
+  }
+
   // Bills
   static Future<bool> addBill({required int employeeId,
                                required String password,
                                required String reimbursementFor, String? description,
                                required double amount,
                                required DateTime date,
-                               required File billImage, File? approvalMail, File? paymentProof}) async {
+                               required PlatformFile billImage, PlatformFile? approvalMail, PlatformFile? paymentProof}) async {
 
     var request = http.MultipartRequest(
       'POST',
@@ -135,41 +155,9 @@ class ApiService {
     request.fields['amount'] = amount.toString();
     request.fields['date'] = DateFormat('yyyy-MM-dd').format(date);
 
-    if (kIsWeb) {
-      // For Web: Read as bytes and send
-      request.files.add(http.MultipartFile.fromBytes(
-        'billImage',
-        await billImage.readAsBytes(),
-        filename: billImage.path.split('/').last,
-      ));
-    } else {
-      // For Mobile: Stream directly from the file path
-      request.files.add(
-        await http.MultipartFile.fromPath('billImage', billImage.path),
-      );
-    }
-    if (approvalMail != null) {
-      if (kIsWeb) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'approvalMail',
-          await approvalMail.readAsBytes(),
-          filename: approvalMail.path.split('/').last,
-        ));
-      } else {
-        request.files.add(await http.MultipartFile.fromPath('approvalMail', approvalMail.path));
-      }
-    }
-    if (paymentProof != null) {
-      if (kIsWeb) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'paymentProof',
-          await paymentProof.readAsBytes(),
-          filename: paymentProof.path.split('/').last,
-        ));
-      } else {
-        request.files.add(await http.MultipartFile.fromPath('paymentProof', paymentProof.path));
-      }
-    }
+    await _attachMultipartFile(request, 'billImage', billImage);
+    if (approvalMail != null) await _attachMultipartFile(request, 'approvalMail', approvalMail);
+    if (paymentProof != null) await _attachMultipartFile(request, 'paymentProof', paymentProof);
 
     var response = await request.send();
 
@@ -224,7 +212,7 @@ class ApiService {
     }
   }
 
-  static Future<bool> editBill({required String employeeId, required String password, required int billId, required String reimbursementFor, String? description, required double amount, required DateTime date, File? billImage, File? approvalMail, File? paymentProof}) async {
+  static Future<bool> editBill({required String employeeId, required String password, required int billId, required String reimbursementFor, String? description, required double amount, required DateTime date, PlatformFile? billImage, PlatformFile? approvalMail, PlatformFile? paymentProof}) async {
     var request = http.MultipartRequest(
       'PUT',
       Uri.parse('$baseUrl/users/$employeeId/bills/$billId'),
@@ -238,41 +226,9 @@ class ApiService {
     request.fields['amount'] = amount.toString();
     request.fields['date'] = DateFormat('yyyy-MM-dd').format(date);
 
-    if (billImage != null) {
-      if (kIsWeb) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'billImage',
-          await billImage.readAsBytes(),
-          filename: billImage.path.split('/').last,
-        ));
-      } else {
-        request.files.add(await http.MultipartFile.fromPath('billImage', billImage.path));
-      }
-    }
-
-    if (approvalMail != null) {
-      if (kIsWeb) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'approvalMail',
-          await approvalMail.readAsBytes(),
-          filename: approvalMail.path.split('/').last,
-        ));
-      } else {
-        request.files.add(await http.MultipartFile.fromPath('approvalMail', approvalMail.path));
-      }
-    }
-
-    if (paymentProof != null) {
-      if (kIsWeb) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'paymentProof',
-          await paymentProof.readAsBytes(),
-          filename: paymentProof.path.split('/').last,
-        ));
-      } else {
-        request.files.add(await http.MultipartFile.fromPath('paymentProof', paymentProof.path));
-      }
-    }
+    if (billImage != null)    await _attachMultipartFile(request, 'billImage', billImage);
+    if (approvalMail != null) await _attachMultipartFile(request, 'approvalMail', approvalMail);
+    if (paymentProof != null) await _attachMultipartFile(request, 'paymentProof', paymentProof);
 
     var response = await request.send();
 

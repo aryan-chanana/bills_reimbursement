@@ -1,11 +1,6 @@
-import 'dart:io';
 import 'dart:typed_data';
-import 'dart:ui';
-import 'package:file_saver/file_saver.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +8,7 @@ import '../models/bill_model.dart';
 import '../models/user_model.dart';
 import '../services/bill_download_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/bill_file_cache.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import '../services/excel_service.dart';
@@ -50,6 +46,8 @@ class _AdminDashboardState extends State<AdminDashboard>
   String? _selectedStatus;
   DateTime? _startDate;
   DateTime? _endDate;
+  // 'billDate' filters on bill.date; 'submissionDate' filters on bill.createdAt
+  String _dateFilterField = 'billDate';
 
   String _employeeSearch = "";
   String _employeeSort = "id_asc";
@@ -143,16 +141,65 @@ class _AdminDashboardState extends State<AdminDashboard>
     _endDate   = DateTime(now.year, now.month + 1, 0);
   }
 
+  bool _isShowAllRange() =>
+      _startDate != null && _startDate!.year == 2020 && _endDate != null;
+
+  bool _isDefaultMonthRange() {
+    // Null is the pre-init state; _applyFilters immediately rewrites it back
+    // to the current month, so semantically null IS the default month.
+    if (_startDate == null || _endDate == null) return true;
+    if (_isShowAllRange()) return false;
+    final now = DateTime.now();
+    final firstOfMonth = DateTime(now.year, now.month, 1);
+    final lastOfMonth  = DateTime(now.year, now.month + 1, 0);
+    return _startDate!.year  == firstOfMonth.year  &&
+           _startDate!.month == firstOfMonth.month &&
+           _startDate!.day   == firstOfMonth.day   &&
+           _endDate!.year    == lastOfMonth.year   &&
+           _endDate!.month   == lastOfMonth.month  &&
+           _endDate!.day     == lastOfMonth.day;
+  }
+
+  String _activeRangeLabel() {
+    if (_isDefaultMonthRange()) {
+      return 'this month · ${DateFormat('MMM yyyy').format(_startDate ?? DateTime.now())}';
+    }
+    if (_isShowAllRange()) return 'All dates';
+    if (_startDate!.year == _endDate!.year &&
+        _startDate!.month == _endDate!.month &&
+        _startDate!.day == _endDate!.day) {
+      return DateFormat('d MMM yyyy').format(_endDate!);
+    }
+    final sameYear = _startDate!.year == _endDate!.year;
+    final start = DateFormat(sameYear ? 'd MMM' : 'd MMM yyyy').format(_startDate!);
+    final end   = DateFormat('d MMM yyyy').format(_endDate!);
+    return '$start – $end';
+  }
+
+  void _resetToShowAll() {
+    setState(() {
+      _startDate = DateTime(2020);
+      _endDate = DateTime.now();
+    });
+    _applyFilters();
+  }
+
+
   void _applyFilters() {
     if (_startDate == null || _endDate == null) {
       _initDefaultMonthRange();
     }
 
+    final startOfDay = DateTime(
+        _startDate!.year, _startDate!.month, _startDate!.day);
+    final endOfDay = DateTime(
+        _endDate!.year, _endDate!.month, _endDate!.day, 23, 59, 59, 999);
+
     List<Bill> filtered = _bills.where((b) {
-      final submittedAt = b.createdAt!;
-      final inRange = !submittedAt.isBefore(_startDate!) &&
-          !submittedAt.isAfter(_endDate!);
-      return inRange;
+      final field = _dateFilterField == 'submissionDate'
+          ? (b.createdAt ?? b.date)
+          : b.date;
+      return !field.isBefore(startOfDay) && !field.isAfter(endOfDay);
     }).toList();
 
     if (_selectedEmployeeId != null) {
@@ -171,17 +218,20 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   Widget _glassCard({required Widget child, EdgeInsetsGeometry padding = const EdgeInsets.all(16)}) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black12.withOpacity(0.06), blurRadius: 18, offset: const Offset(0, 10)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
             color: Colors.white.withOpacity(0.85),
-            borderRadius: BorderRadius.circular(20),
             border: Border.all(color: Colors.white.withOpacity(0.6)),
-            boxShadow: [BoxShadow(color: Colors.black12.withOpacity(0.06), blurRadius: 18, offset: const Offset(0, 10))],
           ),
           child: child,
         ),
@@ -213,7 +263,10 @@ class _AdminDashboardState extends State<AdminDashboard>
           PopupMenuButton<String>(
 
             onSelected: (value) {
-              if (value == "refresh") _loadData();
+              if (value == "refresh") {
+                BillFileCache.instance.clear();
+                _loadData();
+              }
               if (value == "pdf") _generateBillsPdf();
               if (value == "excel") _generateExcel();
               if (value == "user") {
@@ -478,9 +531,23 @@ class _AdminDashboardState extends State<AdminDashboard>
                   children: [
                     Icon(Icons.receipt_long_outlined, size: 56, color: primaryGreen.withOpacity(0.3)),
                     const SizedBox(height: 12),
-                    Text('No bills found', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600)),
+                    Text(
+                      _isShowAllRange()
+                          ? 'No bills found'
+                          : 'No bills in ${_activeRangeLabel()}',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 4),
-                    Text('Try adjusting your filters', style: TextStyle(fontSize: 13, color: Colors.grey.shade400)),
+                    if (_isShowAllRange())
+                      Text('Try adjusting your filters',
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade400))
+                    else
+                      TextButton.icon(
+                        icon: const Icon(Icons.event_available, size: 16),
+                        label: const Text('Show all bills'),
+                        onPressed: _resetToShowAll,
+                      ),
                   ],
                 ),
               ),
@@ -1178,101 +1245,206 @@ class _AdminDashboardState extends State<AdminDashboard>
       builder: (_) {
         DateTime? start;
         DateTime? end;
+        String tempField = _dateFilterField;
 
         return Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 60),
           child: StatefulBuilder(
             builder: (context, setState) {
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // HEADER
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        IconButton(
-                          icon: Icon(Icons.close),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                        Text("Select range",
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              final bool hasStart = start != null;
+              final bool hasEnd = end != null;
+              final bool canSave = hasStart;
 
-                        // 🔁 SHOW ALL moved here
-                        TextButton(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            setState(() {
+              IconData statusIcon;
+              Color statusBg;
+              Color statusFg;
+              String statusText;
+              if (!hasStart) {
+                statusIcon = Icons.touch_app_outlined;
+                statusBg = const Color(0xFFEFF6FF);
+                statusFg = const Color(0xFF1D4ED8);
+                statusText = "Tap a date to set the start";
+              } else if (!hasEnd) {
+                statusIcon = Icons.east;
+                statusBg = const Color(0xFFFFF7ED);
+                statusFg = const Color(0xFFB45309);
+                statusText =
+                    "Start: ${DateFormat('dd MMM yyyy').format(start!)} — tap another day for a range, or Save for this day only";
+              } else {
+                statusIcon = Icons.check_circle_outline;
+                statusBg = const Color(0xFFECFDF5);
+                statusFg = const Color(0xFF047857);
+                statusText =
+                    "${DateFormat('dd MMM yyyy').format(start!)}  →  ${DateFormat('dd MMM yyyy').format(end!)}";
+              }
+
+              return SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // HEADER
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.close),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                          Text("Select range",
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+
+                          // 🔁 SHOW ALL moved here
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(context);
                               _startDate = DateTime(2020);
                               _endDate = DateTime.now();
-                            });
-                            _applyFilters();
-                          },
-                          child: Text("Show All"),
+                              _dateFilterField = tempField;
+                              _applyFilters();
+                            },
+                            child: Text("Show All"),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 8),
+
+                      // FILTER-BY TOGGLE
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(value: 'billDate', label: Text('Bill date')),
+                          ButtonSegment(value: 'submissionDate', label: Text('Submission')),
+                        ],
+                        selected: {tempField},
+                        onSelectionChanged: (s) => setState(() => tempField = s.first),
+                        showSelectedIcon: false,
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // STATUS / INSTRUCTION BANNER
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: statusBg,
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                      ],
-                    ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(statusIcon, size: 18, color: statusFg),
+                            const SizedBox(width: 8),
+                            Flexible(
+                              child: Text(
+                                statusText,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: statusFg,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
 
-                    const SizedBox(height: 8),
+                      const SizedBox(height: 12),
 
-                    // CALENDAR
-                    TableCalendar(
-                      focusedDay: start != null ? start! : DateTime.now(),
-                      firstDay: DateTime(2020),
-                      lastDay: DateTime.now(),
-                      rangeStartDay: start,
-                      rangeEndDay: end,
-                      onRangeSelected: (s, e, f) {
-                        setState(() {
-                          start = s;
-                          end = e;
-                        });
-                      },
-                      rangeSelectionMode: RangeSelectionMode.enforced,
-                      headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
-                    ),
+                      // CALENDAR
+                      TableCalendar(
+                        focusedDay: start != null ? start! : DateTime.now(),
+                        firstDay: DateTime(2020),
+                        lastDay: DateTime.now(),
+                        rangeStartDay: start,
+                        rangeEndDay: end,
+                        onRangeSelected: (s, e, f) {
+                          setState(() {
+                            start = s;
+                            end = e;
+                          });
+                        },
+                        rangeSelectionMode: RangeSelectionMode.enforced,
+                        headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
+                        calendarBuilders: CalendarBuilders(
+                          rangeHighlightBuilder: (context, day, isWithinRange) {
+                            if (!isWithinRange) return null;
+                            final isStart = isSameDay(day, start);
+                            final isEnd = isSameDay(day, end);
+                            final roundLeft = isStart || day.weekday == DateTime.sunday;
+                            final roundRight = isEnd || day.weekday == DateTime.saturday;
+                            return LayoutBuilder(
+                              builder: (_, constraints) {
+                                final shorter = constraints.maxHeight < constraints.maxWidth
+                                    ? constraints.maxHeight
+                                    : constraints.maxWidth;
+                                final h = shorter - 12;
+                                final r = Radius.circular(h / 2);
+                                return Center(
+                                  child: Container(
+                                    margin: EdgeInsetsDirectional.only(
+                                      start: isStart ? constraints.maxWidth * 0.5 : 0,
+                                      end: isEnd ? constraints.maxWidth * 0.5 : 0,
+                                    ),
+                                    height: h,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFBBDDFF),
+                                      borderRadius: BorderRadius.horizontal(
+                                        left: roundLeft ? r : Radius.zero,
+                                        right: roundRight ? r : Radius.zero,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
 
-                    const SizedBox(height: 12),
+                      const SizedBox(height: 12),
 
-                    // FOOTER BUTTONS
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        TextButton.icon(
-                          icon: Icon(Icons.clear),
-                          label: Text("Clear"),
-                          onPressed: () {
-                            setState(() {
-                              start = null;
-                              end = null;
+                      // FOOTER BUTTONS
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          TextButton.icon(
+                            icon: Icon(Icons.clear),
+                            label: Text("Clear"),
+                            onPressed: () {
                               _startDate = null;
                               _endDate = null;
-                            });
-                            Navigator.pop(context);
-                            _applyFilters();
-                          },
-                        ),
-
-                        // 🔁 SAVE moved here
-                        ElevatedButton.icon(
-                          icon: Icon(Icons.save),
-                          label: Text("Save"),
-                          onPressed: () {
-                            if (start != null && end != null) {
+                              _dateFilterField = tempField;
                               Navigator.pop(context);
-                              setState(() {
-                                _startDate = start!;
-                                _endDate = end!;
-                              });
                               _applyFilters();
-                            }
-                          },
-                        ),
-                      ],
-                    )
-                  ],
+                            },
+                          ),
+
+                          // 🔁 SAVE moved here
+                          ElevatedButton.icon(
+                            icon: Icon(Icons.save),
+                            label: Text(canSave
+                                ? (hasEnd ? "Save" : "Save (single day)")
+                                : "Pick a date"),
+                            onPressed: canSave
+                                ? () {
+                                    final effectiveEnd = end ?? start!;
+                                    Navigator.pop(context);
+                                    _startDate = start!;
+                                    _endDate = effectiveEnd;
+                                    _dateFilterField = tempField;
+                                    _applyFilters();
+                                  }
+                                : null,
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
                 ),
               );
             },
@@ -1455,11 +1627,13 @@ class _AdminDashboardState extends State<AdminDashboard>
   }
 
   void _viewDocument(String filePath, String title) async {
-    final url = '${ApiService.baseUrl}/files/$filePath';
     final isPdf = filePath.toLowerCase().endsWith('.pdf');
 
-    final response = await http.get(Uri.parse(url), headers: ApiService.getAuthHeaders(_adminId!, _adminPassword!));
-    if (response.statusCode != 200) {
+    final bytes = await BillFileCache.instance.fetch(
+      filePath,
+      headers: ApiService.getAuthHeaders(_adminId!, _adminPassword!),
+    );
+    if (bytes == null) {
       if (!mounted) return;
       showDialog(
         context: context,
@@ -1472,14 +1646,14 @@ class _AdminDashboardState extends State<AdminDashboard>
       return;
     }
 
-    final bytes = response.bodyBytes;
     if (!mounted) return;
 
     if (isPdf) {
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/${filePath.split('/').last}');
-      await tempFile.writeAsBytes(bytes);
-      await OpenFilex.open(tempFile.path);
+      await BillDownloadService.openBytes(
+        bytes,
+        filePath.split('/').last,
+        'application/pdf',
+      );
       return;
     }
 
@@ -1527,13 +1701,17 @@ class _AdminDashboardState extends State<AdminDashboard>
                             icon: const Icon(Icons.download, color: Colors.white),
                             tooltip: 'Download',
                             onPressed: () async {
-                              final ext = filePath.split('.').last.toLowerCase();
-                              final name = filePath.split('/').last.replaceAll(RegExp(r'\.[^.]+$'), '');
-                              await FileSaver.instance.saveAs(
-                                name: name,
-                                bytes: bytes,
-                                fileExtension: ext,
-                                mimeType: (ext == 'jpg' || ext == 'jpeg') ? MimeType.jpeg : MimeType.png,
+                              final fileName = filePath.split('/').last;
+                              final ext = fileName.split('.').last.toLowerCase();
+                              final mime = ext == 'jpg' || ext == 'jpeg'
+                                  ? 'image/jpeg'
+                                  : ext == 'pdf'
+                                      ? 'application/pdf'
+                                      : 'image/png';
+                              await BillDownloadService.downloadBytes(
+                                bytes,
+                                fileName,
+                                mime,
                               );
                             },
                           ),
@@ -1574,14 +1752,14 @@ class _AdminDashboardState extends State<AdminDashboard>
 
   Future<void> _downloadBillImage(Bill bill) async {
     try {
-      final imageUrl = '${ApiService.baseUrl}/files/${bill.billImagePath}';
-      final headers = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
-
-      final response = await http.get(Uri.parse(imageUrl), headers: headers);
-      if (response.statusCode != 200) throw Exception();
+      final bytes = await BillFileCache.instance.fetch(
+        bill.billImagePath,
+        headers: ApiService.getAuthHeaders(_adminId!, _adminPassword!),
+      );
+      if (bytes == null) throw Exception();
 
       await BillDownloadService.downloadBytes(
-        response.bodyBytes,
+        bytes,
         'bill_${bill.billImagePath}',
         'image/png',
       );
@@ -1605,50 +1783,39 @@ class _AdminDashboardState extends State<AdminDashboard>
       return;
     }
 
-    // Show loading dialog while generating
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 20),
-            Text('Generating PDF…'),
-          ],
-        ),
-      ),
-    );
+    final ctrl = _showPdfProgressDialog();
 
     try {
-      // Load Unicode-supporting fonts so bullet (•) and em-dash (—) render correctly
-      final fontRegular = await PdfGoogleFonts.notoSansRegular();
-      final fontBold    = await PdfGoogleFonts.notoSansBold();
-
+      final fonts = await _loadPdfFonts();
       final pdf = pw.Document(
-        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+        theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold),
       );
       final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
-
       final allKnownUsers = [..._employees, ..._disabledUsers];
-      for (final bill in _filteredBills) {
-        final employee = allKnownUsers.firstWhere(
-          (e) => e.employeeId == bill.employeeId,
-          orElse: () => User(employeeId: bill.employeeId, name: 'Unknown', password: ''),
-        );
-        await _addBillToPdf(pdf, bill, employee, authHeaders);
-      }
 
+      await _processBillsChunked(
+        _filteredBills,
+        authHeaders,
+        ctrl.progress,
+        (bill, assets) {
+          final employee = allKnownUsers.firstWhere(
+            (e) => e.employeeId == bill.employeeId,
+            orElse: () => User(employeeId: bill.employeeId, name: 'Unknown', password: ''),
+          );
+          _appendBillPages(pdf, bill, employee, assets);
+        },
+      );
+
+      ctrl.progress.value = 'Building PDF…';
       final pdfBytes = await pdf.save();
-      final fileName = 'Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
+      final fileName = 'Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf';
 
-      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // dismiss loading dialog
+      ctrl.dismiss();
 
-      await FileSaver.instance.saveAs(
-        name: fileName,
-        bytes: Uint8List.fromList(pdfBytes),
-        fileExtension: 'pdf',
-        mimeType: MimeType.pdf,
+      await BillDownloadService.downloadBytes(
+        Uint8List.fromList(pdfBytes),
+        fileName,
+        'application/pdf',
       );
 
       if (mounted) {
@@ -1658,8 +1825,8 @@ class _AdminDashboardState extends State<AdminDashboard>
       }
     } catch (e) {
       debugPrint('PDF ERROR: $e');
+      ctrl.dismiss();
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop(); // dismiss loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
         );
@@ -1667,71 +1834,62 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
   }
 
-  /// Fetches a document and adds it to the PDF.
-  /// Images: embedded directly. PDFs: each page rasterised at 150 dpi and embedded.
-  /// Silently skips if path is null/empty or the fetch fails.
-  Future<void> _addDocumentPage(
-    pw.Document pdf,
-    Map<String, String> headers,
-    String? path,
-    String label,
-    int billId,
-  ) async {
-    if (path == null || path.isEmpty) return;
-
-    try {
-      final response = await http.get(
-        Uri.parse('${ApiService.baseUrl}/files/$path'),
-        headers: headers,
-      );
-      if (response.statusCode != 200) return;
-
-      final fileBytes = response.bodyBytes;
-      final isPdf = path.toLowerCase().endsWith('.pdf');
-
-      if (isPdf) {
-        // Rasterise each page and embed as a full-size image
-        int pageNum = 1;
-        await for (final raster in Printing.raster(fileBytes, dpi: 150)) {
-          final imgBytes = await raster.toPng();
-          final image = pw.MemoryImage(imgBytes);
-          final currentPage = pageNum;
-          pdf.addPage(pw.Page(
-            pageFormat: PdfPageFormat.a4,
-            margin: const pw.EdgeInsets.all(24),
-            build: (_) => pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Text(
-                  currentPage == 1 ? 'Bill #$billId — $label' : 'Bill #$billId — $label (page $currentPage)',
-                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
-                ),
-                pw.SizedBox(height: 12),
-                pw.Expanded(child: pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain))),
-              ],
+  /// Shows a progress dialog with a live-updating message and returns a
+  /// handle to update the message and dismiss it.
+  ({ValueNotifier<String> progress, void Function() dismiss}) _showPdfProgressDialog() {
+    final progress = ValueNotifier<String>('Preparing…');
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(width: 20),
+            Expanded(
+              child: ValueListenableBuilder<String>(
+                valueListenable: progress,
+                builder: (_, msg, __) => Text(msg),
+              ),
             ),
-          ));
-          pageNum++;
-        }
-      } else {
-        // Plain image document
-        final image = pw.MemoryImage(fileBytes);
-        pdf.addPage(pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(24),
-          build: (_) => pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text('Bill #$billId — $label',
-                  style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 12),
-              pw.Expanded(child: pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain))),
-            ],
-          ),
-        ));
+          ],
+        ),
+      ),
+    );
+    return (
+      progress: progress,
+      dismiss: () {
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      },
+    );
+  }
+
+  /// Fetches + rasterises bills in chunks and feeds each ready bill to
+  /// [onReady] so callers can append it to the PDF and let the rasterised
+  /// bytes be GC'd before the next chunk starts.
+  ///
+  /// Concurrency is dropped to 1 on mobile because the native PDF
+  /// rasteriser is single-threaded and parallel rasterisation can OOM
+  /// the process on phones for multi-page attachments.
+  Future<void> _processBillsChunked(
+    List<Bill> bills,
+    Map<String, String> headers,
+    ValueNotifier<String> progress,
+    void Function(Bill bill, _BillAssets assets) onReady,
+  ) async {
+    final concurrency = kIsWeb ? 4 : 1;
+    var processed = 0;
+    for (var i = 0; i < bills.length; i += concurrency) {
+      final endExclusive = i + concurrency;
+      final slice = bills.sublist(
+          i, endExclusive > bills.length ? bills.length : endExclusive);
+      final results = await Future.wait(
+          slice.map((b) => _prefetchBillAssets(b, headers)));
+      for (var j = 0; j < slice.length; j++) {
+        onReady(slice[j], results[j]);
       }
-    } catch (_) {
-      // Skip document if fetch or rasterisation fails
+      processed += slice.length;
+      progress.value = 'Processing bill $processed of ${bills.length}';
     }
   }
 
@@ -2116,100 +2274,283 @@ class _AdminDashboardState extends State<AdminDashboard>
   void _showUserRequestsDialog() {
     showDialog(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          titlePadding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-          actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-
-          title: const Text("New User Requests"),
-
-          content: SizedBox(
-            width: MediaQuery.of(context).size.width * 0.8,
-            child: _pendingUsers.isEmpty
-                ? const Text("No pending requests")
-                : ListView.builder(
-              shrinkWrap: true,
-              itemCount: _pendingUsers.length,
-              itemBuilder: (context, i) {
-                final user = _pendingUsers[i];
-
-                return ListTile(
-                  dense: true,
-                  leading: const CircleAvatar(
-                    radius: 18,
-                    child: Icon(Icons.person, size: 18),
-                  ),
-
-                  title: Text(
-                    user.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-
-                  subtitle: Text(
-                    "ID: ${user.employeeId}\nAdmin: ${user.isAdmin ? "Yes" : "No"}",
-                  ),
-
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.check, color: Colors.green),
-                        onPressed: () => _approveUser(user),
+      builder: (dialogCtx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+          child: StatefulBuilder(
+            builder: (_, setLocal) {
+              void refresh() => setLocal(() {});
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 560,
+                  maxHeight: MediaQuery.of(dialogCtx).size.height * 0.85,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // HEADER
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 8, 12),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEF3C7),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.person_add_alt_1,
+                                size: 20, color: Color(0xFFB45309)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('New user requests',
+                                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _pendingUsers.isEmpty
+                                      ? 'No one waiting for approval'
+                                      : '${_pendingUsers.length} pending',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.pop(dialogCtx),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () => _rejectUser(user),
+                    ),
+                    const Divider(height: 1),
+                    // BODY
+                    Flexible(
+                      child: _pendingUsers.isEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 20),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.inbox_outlined, size: 56, color: Colors.grey[400]),
+                                  const SizedBox(height: 12),
+                                  const Text('All caught up',
+                                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'New signups will appear here for your approval.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(16),
+                              shrinkWrap: true,
+                              itemCount: _pendingUsers.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 10),
+                              itemBuilder: (_, i) =>
+                                  _userRequestCard(_pendingUsers[i], refresh),
+                            ),
+                    ),
+                    // FOOTER
+                    if (_pendingUsers.isNotEmpty) ...[
+                      const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.done_all),
+                            label: Text('Approve all (${_pendingUsers.length})'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () => _approveAllUsers(refresh),
+                          ),
+                        ),
                       ),
                     ],
-                  ),
-                );
-              },
-            ),
-          ),
-
-          actions: [
-            if (_pendingUsers.isNotEmpty)
-              ElevatedButton.icon(
-                icon: const Icon(Icons.done_all),
-                label: const Text("Approve All"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
+                  ],
                 ),
-                onPressed: _approveAllUsers,
-              ),
-
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close"),
-            ),
-          ],
+              );
+            },
+          ),
         );
       },
     );
   }
 
-  Future<void> _approveUser(User user) async {
+  Widget _userRequestCard(User user, VoidCallback refresh) {
+    final initials = _initialsForName(user.name);
+    final color = _avatarColorForId(user.employeeId);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A000000), blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: color.withOpacity(0.15),
+                child: Text(initials,
+                    style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(user.name,
+                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                        overflow: TextOverflow.ellipsis),
+                    if (user.email.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(user.email,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          overflow: TextOverflow.ellipsis),
+                    ],
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        _miniChip('ID ${user.employeeId}',
+                            bg: const Color(0xFFEFF6FF), fg: const Color(0xFF1D4ED8)),
+                        if (user.isAdmin)
+                          _miniChip('Admin',
+                              bg: const Color(0xFFFEF3C7), fg: const Color(0xFFB45309)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.close, size: 18),
+                  label: const Text('Reject'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFFEF4444),
+                    side: const BorderSide(color: Color(0xFFFECACA)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _rejectUser(user, refresh),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.check, size: 18),
+                  label: const Text('Approve'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _approveUser(user, refresh),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _initialsForName(String name) {
+    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
+    return (parts[0][0] + parts.last[0]).toUpperCase();
+  }
+
+  Color _avatarColorForId(int id) {
+    const colors = [
+      Color(0xFF3B82F6),
+      Color(0xFF10B981),
+      Color(0xFFF59E0B),
+      Color(0xFF8B5CF6),
+      Color(0xFFEC4899),
+      Color(0xFF06B6D4),
+    ];
+    return colors[id.abs() % colors.length];
+  }
+
+  Widget _miniChip(String label, {required Color bg, required Color fg}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(label,
+          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
+    );
+  }
+
+  Future<void> _approveUser(User user, [VoidCallback? onDone]) async {
     final success = await ApiService.editUser(
       adminId: _adminId!,
       adminPassword: _adminPassword!,
       employeeIdToEdit: user.employeeId,
       name: user.name,
       email: user.email,
-      isApproved: true
+      isApproved: true,
     );
 
     if (success == "true") {
-      Navigator.pop(context);
-      _loadData();
-
+      if (mounted) {
+        setState(() {
+          _pendingUsers.removeWhere((u) => u.employeeId == user.employeeId);
+          _employees.add(User(
+            employeeId: user.employeeId,
+            name: user.name,
+            email: user.email,
+            password: user.password,
+            isAdmin: user.isAdmin,
+            isApproved: true,
+            isDisabled: user.isDisabled,
+          ));
+        });
+      }
+      onDone?.call();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("User approved"), backgroundColor: Colors.green),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to approve user"), backgroundColor: Colors.red),
       );
     }
   }
 
-  Future<void> _rejectUser(User user) async {
+  Future<void> _rejectUser(User user, [VoidCallback? onDone]) async {
     final success = await ApiService.deleteUser(
       adminId: _adminId!,
       adminPassword: _adminPassword!,
@@ -2217,23 +2558,29 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
 
     if (success) {
-      Navigator.pop(context);
-      _loadData();
-
+      if (mounted) {
+        setState(() {
+          _pendingUsers.removeWhere((u) => u.employeeId == user.employeeId);
+        });
+      }
+      onDone?.call();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("User rejected"), backgroundColor: Colors.red),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Failed to reject user"), backgroundColor: Colors.red),
       );
     }
   }
 
-  Future<void> _approveAllUsers() async {
-
+  Future<void> _approveAllUsers([VoidCallback? onDone]) async {
     if (_pendingUsers.isEmpty) return;
 
-    int successCount = 0;
+    final toApprove = List<User>.from(_pendingUsers);
+    final succeeded = <User>[];
 
-    for (final user in _pendingUsers) {
-
+    for (final user in toApprove) {
       final success = await ApiService.editUser(
         adminId: _adminId!,
         adminPassword: _adminPassword!,
@@ -2242,18 +2589,33 @@ class _AdminDashboardState extends State<AdminDashboard>
         email: user.email,
         isApproved: true,
       );
-      if (success == "true") successCount++;
+      if (success == "true") succeeded.add(user);
     }
 
-    Navigator.pop(context);
+    if (mounted) {
+      setState(() {
+        for (final u in succeeded) {
+          _pendingUsers.removeWhere((p) => p.employeeId == u.employeeId);
+          _employees.add(User(
+            employeeId: u.employeeId,
+            name: u.name,
+            email: u.email,
+            password: u.password,
+            isAdmin: u.isAdmin,
+            isApproved: true,
+            isDisabled: u.isDisabled,
+          ));
+        }
+      });
+    }
+    onDone?.call();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text("$successCount users approved"),
+        content: Text("${succeeded.length} users approved"),
         backgroundColor: Colors.green,
       ),
     );
-    _loadData();
   }
 
   List<User> _getFilteredEmployees() {
@@ -2346,24 +2708,15 @@ class _AdminDashboardState extends State<AdminDashboard>
     );
   }
 
-  /// Adds all pages for a single bill to the PDF document.
-  Future<void> _addBillToPdf(pw.Document pdf, Bill bill, User employee, Map<String, String> authHeaders) async {
-    List<Uint8List> receiptPages = [];
-    try {
-      final resp = await http.get(
-        Uri.parse('${ApiService.baseUrl}/files/${bill.billImagePath}'),
-        headers: authHeaders,
-      );
-      if (resp.statusCode == 200) {
-        if (bill.billImagePath.toLowerCase().endsWith('.pdf')) {
-          await for (final raster in Printing.raster(resp.bodyBytes, dpi: 150)) {
-            receiptPages.add(await raster.toPng());
-          }
-        } else {
-          receiptPages = [resp.bodyBytes];
-        }
-      }
-    } catch (_) {}
+  /// Synchronously appends all pages for a single bill using already-fetched
+  /// and pre-rasterised assets. The async work happened in the prefetch phase.
+  void _appendBillPages(
+    pw.Document pdf,
+    Bill bill,
+    User employee,
+    _BillAssets assets,
+  ) {
+    final receiptPages = assets.receipt.pages;
 
     // Page 1: info summary + bill receipt
     pdf.addPage(
@@ -2436,8 +2789,32 @@ class _AdminDashboardState extends State<AdminDashboard>
       ));
     }
 
-    await _addDocumentPage(pdf, authHeaders, bill.approvalMailPath, 'Approval Mail', bill.billId);
-    await _addDocumentPage(pdf, authHeaders, bill.paymentProofPath, 'Payment Proof', bill.billId);
+    _appendDocumentPages(pdf, assets.approvalMail, 'Approval Mail', bill.billId);
+    _appendDocumentPages(pdf, assets.paymentProof, 'Payment Proof', bill.billId);
+  }
+
+  /// Appends each pre-rasterised page of an attachment as its own PDF page.
+  void _appendDocumentPages(
+      pw.Document pdf, _PreparedDoc doc, String label, int billId) {
+    if (doc.pages.isEmpty) return;
+    for (var i = 0; i < doc.pages.length; i++) {
+      final image = pw.MemoryImage(doc.pages[i]);
+      pdf.addPage(pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(24),
+        build: (_) => pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              i == 0 ? 'Bill #$billId — $label' : 'Bill #$billId — $label (page ${i + 1})',
+              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold),
+            ),
+            pw.SizedBox(height: 12),
+            pw.Expanded(child: pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain))),
+          ],
+        ),
+      ));
+    }
   }
 
   Future<void> _exportUserBillsPdf(User user) async {
@@ -2450,43 +2827,33 @@ class _AdminDashboardState extends State<AdminDashboard>
       return;
     }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 20),
-            Text('Generating PDF…'),
-          ],
-        ),
-      ),
-    );
+    final ctrl = _showPdfProgressDialog();
 
     try {
-      final fontRegular = await PdfGoogleFonts.notoSansRegular();
-      final fontBold    = await PdfGoogleFonts.notoSansBold();
+      final fonts = await _loadPdfFonts();
       final pdf = pw.Document(
-        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+        theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold),
       );
       final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
 
-      for (final bill in userBills) {
-        await _addBillToPdf(pdf, bill, user, authHeaders);
-      }
+      await _processBillsChunked(
+        userBills,
+        authHeaders,
+        ctrl.progress,
+        (bill, assets) => _appendBillPages(pdf, bill, user, assets),
+      );
 
+      ctrl.progress.value = 'Building PDF…';
       final pdfBytes = await pdf.save();
       final safeName = user.name.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-      final fileName = '${safeName}_Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
+      final fileName = '${safeName}_Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf';
 
-      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      ctrl.dismiss();
 
-      await FileSaver.instance.saveAs(
-        name: fileName,
-        bytes: Uint8List.fromList(pdfBytes),
-        fileExtension: 'pdf',
-        mimeType: MimeType.pdf,
+      await BillDownloadService.downloadBytes(
+        Uint8List.fromList(pdfBytes),
+        fileName,
+        'application/pdf',
       );
 
       if (mounted) {
@@ -2495,8 +2862,8 @@ class _AdminDashboardState extends State<AdminDashboard>
         );
       }
     } catch (e) {
+      ctrl.dismiss();
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
         );
@@ -2507,45 +2874,46 @@ class _AdminDashboardState extends State<AdminDashboard>
   Future<void> _exportAllDisabledUsersPdf() async {
     if (_disabledUsers.isEmpty) return;
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 20),
-            Expanded(child: Text('Generating PDF for all disabled users…')),
-          ],
-        ),
-      ),
-    );
+    final ctrl = _showPdfProgressDialog();
 
     try {
-      final fontRegular = await PdfGoogleFonts.notoSansRegular();
-      final fontBold    = await PdfGoogleFonts.notoSansBold();
+      final fonts = await _loadPdfFonts();
       final pdf = pw.Document(
-        theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold),
+        theme: pw.ThemeData.withFont(base: fonts.regular, bold: fonts.bold),
       );
       final authHeaders = ApiService.getAuthHeaders(_adminId!, _adminPassword!);
 
+      // Flatten bills across all disabled users, keeping a side-map so the
+      // chunked processor can hand each bill back to its owning user.
+      final flatBills = <Bill>[];
+      final billIdToUser = <int, User>{};
       for (final user in _disabledUsers) {
-        final userBills = _bills.where((b) => b.employeeId == user.employeeId).toList();
-        for (final bill in userBills) {
-          await _addBillToPdf(pdf, bill, user, authHeaders);
+        for (final bill in _bills.where((b) => b.employeeId == user.employeeId)) {
+          flatBills.add(bill);
+          billIdToUser[bill.billId] = user;
         }
       }
 
+      await _processBillsChunked(
+        flatBills,
+        authHeaders,
+        ctrl.progress,
+        (bill, assets) {
+          final user = billIdToUser[bill.billId]!;
+          _appendBillPages(pdf, bill, user, assets);
+        },
+      );
+
+      ctrl.progress.value = 'Building PDF…';
       final pdfBytes = await pdf.save();
-      final fileName = 'Disabled_Users_Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}';
+      final fileName = 'Disabled_Users_Bills_${DateFormat('dd-MM-yyyy').format(DateTime.now())}.pdf';
 
-      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      ctrl.dismiss();
 
-      await FileSaver.instance.saveAs(
-        name: fileName,
-        bytes: Uint8List.fromList(pdfBytes),
-        fileExtension: 'pdf',
-        mimeType: MimeType.pdf,
+      await BillDownloadService.downloadBytes(
+        Uint8List.fromList(pdfBytes),
+        fileName,
+        'application/pdf',
       );
 
       if (mounted) {
@@ -2554,8 +2922,8 @@ class _AdminDashboardState extends State<AdminDashboard>
         );
       }
     } catch (e) {
+      ctrl.dismiss();
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to generate PDF: $e'), backgroundColor: Colors.red),
         );
@@ -2738,5 +3106,76 @@ class _AdminDashboardState extends State<AdminDashboard>
     _tabController.dispose();
     super.dispose();
   }
+}
+
+// ─── PDF export helpers (top-level so cross-export state is shared) ─────────
+
+class _PreparedDoc {
+  /// Each entry is one rasterised PDF page (PNG bytes), or a single image's
+  /// raw bytes for non-PDF documents.
+  final List<Uint8List> pages;
+  const _PreparedDoc(this.pages);
+  static const empty = _PreparedDoc([]);
+}
+
+class _BillAssets {
+  final _PreparedDoc receipt;
+  final _PreparedDoc approvalMail;
+  final _PreparedDoc paymentProof;
+  const _BillAssets({
+    required this.receipt,
+    required this.approvalMail,
+    required this.paymentProof,
+  });
+}
+
+// Cached fonts so subsequent PDF exports skip the Google Fonts round-trip.
+pw.Font? _cachedPdfRegularFont;
+pw.Font? _cachedPdfBoldFont;
+
+Future<({pw.Font regular, pw.Font bold})> _loadPdfFonts() async {
+  _cachedPdfRegularFont ??= await PdfGoogleFonts.notoSansRegular();
+  _cachedPdfBoldFont    ??= await PdfGoogleFonts.notoSansBold();
+  return (regular: _cachedPdfRegularFont!, bold: _cachedPdfBoldFont!);
+}
+
+/// Fetches a single document via [BillFileCache] and rasterises it if it's a
+/// PDF. Returns [_PreparedDoc.empty] when the path is missing or the fetch
+/// fails — the caller renders a placeholder in that case.
+///
+/// Mobile uses a lower DPI to keep the in-memory bitmap per page small;
+/// Android can OOM at 150 DPI when an attachment is many pages.
+Future<_PreparedDoc> _prepareDoc(
+    String? path, Map<String, String> headers) async {
+  if (path == null || path.isEmpty) return _PreparedDoc.empty;
+  try {
+    final bytes = await BillFileCache.instance.fetch(path, headers: headers);
+    if (bytes == null) return _PreparedDoc.empty;
+    if (path.toLowerCase().endsWith('.pdf')) {
+      final dpi = kIsWeb ? 150.0 : 100.0;
+      final pages = <Uint8List>[];
+      await for (final raster in Printing.raster(bytes, dpi: dpi)) {
+        pages.add(await raster.toPng());
+      }
+      return _PreparedDoc(pages);
+    }
+    return _PreparedDoc([bytes]);
+  } catch (_) {
+    return _PreparedDoc.empty;
+  }
+}
+
+Future<_BillAssets> _prefetchBillAssets(
+    Bill bill, Map<String, String> headers) async {
+  final results = await Future.wait([
+    _prepareDoc(bill.billImagePath, headers),
+    _prepareDoc(bill.approvalMailPath, headers),
+    _prepareDoc(bill.paymentProofPath, headers),
+  ]);
+  return _BillAssets(
+    receipt: results[0],
+    approvalMail: results[1],
+    paymentProof: results[2],
+  );
 }
 

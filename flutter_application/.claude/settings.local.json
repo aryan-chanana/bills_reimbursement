@@ -4,7 +4,8 @@
       "Bash(flutter pub *)",
       "Bash(flutter analyze *)",
       "Bash(dart run *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(flutter build *)"
     ]
   }
 }

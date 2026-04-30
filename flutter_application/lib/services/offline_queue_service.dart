@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
@@ -36,6 +38,7 @@ class OfflineQueueService {
 
     for (String raw in queued) {
       final data = jsonDecode(raw);
+      final String imagePath = data["imagePath"] as String;
 
       bool success = await ApiService.addBill(
         employeeId: employeeId,
@@ -44,9 +47,11 @@ class OfflineQueueService {
         description: data["description"],
         amount: data["amount"],
         date: DateTime.parse(data["date"]),
-        billImage: data["imagePath"],
-        approvalMail: data["approvalMail"],
-        paymentProof: data["paymentProof"]
+        billImage: PlatformFile(
+          name: p.basename(imagePath),
+          size: 0,
+          path: imagePath,
+        ),
       );
 
       if (!success) {
