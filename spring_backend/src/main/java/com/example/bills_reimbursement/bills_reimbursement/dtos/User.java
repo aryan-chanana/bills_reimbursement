@@ -47,6 +47,16 @@ public class User implements UserDetails {
     @Column(name = "fcm_token")
     private String fcmToken;
 
+    /**
+     * Bcrypt hash of an opaque session string handed back after a successful
+     * Microsoft SSO sign-in. Authenticated as an alternative to the user's
+     * password via {@code CombinedAuthenticationProvider}; rotated on every
+     * SSO login. Null until the user's first SSO sign-in.
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @Column(name = "sso_token")
+    private String ssoToken;
+
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         if (this.isAdmin) {

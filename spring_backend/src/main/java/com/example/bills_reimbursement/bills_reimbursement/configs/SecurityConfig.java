@@ -1,6 +1,5 @@
 package com.example.bills_reimbursement.bills_reimbursement.configs;
 
-import com.example.bills_reimbursement.bills_reimbursement.services.CustomUserDetailsService;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -8,12 +7,9 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.DisabledException;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
@@ -21,21 +17,12 @@ import org.springframework.security.web.SecurityFilterChain;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final CustomUserDetailsService customUserDetailsService;
+    private final CombinedAuthenticationProvider combinedAuthenticationProvider;
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public AuthenticationManager authenticationManager(HttpSecurity http) throws Exception {
-        AuthenticationManagerBuilder authenticationManagerBuilder =
-                http.getSharedObject(AuthenticationManagerBuilder.class);
-        authenticationManagerBuilder
-                .userDetailsService(customUserDetailsService)
-                .passwordEncoder(passwordEncoder());
-        return authenticationManagerBuilder.build();
+    public AuthenticationManager authenticationManager() {
+        // Single provider that accepts either the password or the SSO session token.
+        return new org.springframework.security.authentication.ProviderManager(combinedAuthenticationProvider);
     }
 
     @Bean
@@ -43,12 +30,14 @@ public class SecurityConfig {
         http
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(AbstractHttpConfigurer::disable)
+                .authenticationProvider(combinedAuthenticationProvider)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users").permitAll() // registration
                         .requestMatchers(HttpMethod.POST, "/users/*/send-otp").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/*/verify-otp").permitAll()
                         .requestMatchers(HttpMethod.POST, "/users/*/update-password").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/auth/microsoft").permitAll()
 
                         // check server connection
                         .requestMatchers(HttpMethod.GET, "/admin/ping").permitAll()
