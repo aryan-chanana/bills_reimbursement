@@ -85,8 +85,8 @@ public class BillController {
         }
 
         if (!reimbursementFor.equalsIgnoreCase("Parking")) {
-            if (approvalMail == null || paymentProof == null || description == null || description.isEmpty()) {
-                return ResponseEntity.badRequest().body("Approval mail, Payment proof & Description are required for this category");
+            if (paymentProof == null || description == null || description.isEmpty()) {
+                return ResponseEntity.badRequest().body("Payment proof & Description are required for this category");
             }
         }
 
@@ -159,12 +159,10 @@ public class BillController {
                     .body(Map.of("error", "User disabled. Contact administrator."));
         }
         if (!reimbursementFor.equalsIgnoreCase("Parking")) {
-            boolean hasApproval = (approvalMail != null && !approvalMail.isEmpty())
-                    || (existingBill.getApprovalMailPath() != null && !existingBill.getApprovalMailPath().isEmpty());
             boolean hasPayment = (paymentProof != null && !paymentProof.isEmpty())
                     || (existingBill.getPaymentProofPath() != null && !existingBill.getPaymentProofPath().isEmpty());
-            if (!hasApproval || !hasPayment) {
-                return ResponseEntity.badRequest().body("Approval mail and Payment proof are required for this category");
+            if (!hasPayment) {
+                return ResponseEntity.badRequest().body("Payment proof is required for this category");
             }
         }
 
