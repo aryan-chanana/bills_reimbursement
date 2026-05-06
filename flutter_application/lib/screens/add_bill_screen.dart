@@ -144,7 +144,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                 isExpanded: true,
                                 value: _selectedCategory,
                                 decoration: InputDecoration(
-                                  labelText: 'Reimbursement For',
+                                  labelText: 'Reimbursement For*',
                                   prefixIcon: Icon(Icons.category_rounded, color: kPrimaryBlue),
                                   filled: true,
                                   fillColor: Colors.white,
@@ -206,7 +206,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                 // Bill / Receipt picker
                                 Row(
                                   children: [
-                                    Text("Bill / Receipt", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+                                    Text("Bill / Receipt*", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
                                     const SizedBox(width: 6),
                                     Tooltip(
                                       message: "Original bill or receipt issued by the vendor",
@@ -261,7 +261,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                   TextFormField(
                                     controller: _descriptionController,
                                     decoration: InputDecoration(
-                                      labelText: 'Description',
+                                      labelText: 'Description*',
                                       hintText: 'Enter bill details',
                                       prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
                                       filled: true,
@@ -282,7 +282,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                 TextFormField(
                                   controller: _amountController,
                                   decoration: InputDecoration(
-                                    labelText: 'Amount (₹)',
+                                    labelText: 'Amount (₹)*',
                                     prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
                                     filled: true,
                                     fillColor: Colors.white,
@@ -301,7 +301,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                                   onTap: _selectDate,
                                   child: InputDecorator(
                                     decoration: InputDecoration(
-                                      labelText: 'Date of Bill',
+                                      labelText: 'Date of Bill*',
                                       prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
                                       filled: true,
                                       fillColor: Colors.white,
@@ -321,7 +321,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                               child: TextFormField(
                                 controller: _descriptionController,
                                 decoration: InputDecoration(
-                                  labelText: 'Description',
+                                  labelText: 'Description*',
                                   hintText: 'Enter bill details',
                                   prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
                                   filled: true,
@@ -350,26 +350,24 @@ class _AddBillScreenState extends State<AddBillScreen> {
                         // Approval mail is always shared; payment proof is per-entry in batch mode
                         if (_selectedCategory != 'Parking') ...[
                           const SizedBox(height: 20),
-                          _buildFileUploadSection(
-                            title: _batchMode
-                                ? "Approval Mail — shared for all entries"
-                                : "Approval Mail (Screenshot/PDF)",
-                            tooltip: "Screenshot or PDF of the approval email received from management",
-                            file: _approvalMailFile,
-                            onPick: () => _pickFile('approval'),
-                            onClear: () => setState(() => _approvalMailFile = null),
-                          ),
                           // Payment proof only shown here in single mode; in batch mode it's per-entry
                           if (!_batchMode) ...[
-                            const SizedBox(height: 20),
                             _buildFileUploadSection(
-                              title: "Payment Proof (Screenshot/PDF)",
+                              title: "Payment Proof (Screenshot/PDF)*",
                               tooltip: "Screenshot of the payment made (e.g. UPI, bank transfer)",
                               file: _paymentProofFile,
                               onPick: () => _pickFile('payment'),
                               onClear: () => setState(() => _paymentProofFile = null),
                             ),
                           ],
+                          const SizedBox(height: 20),
+                          _buildFileUploadSection(
+                            title: "Approval Mail (Screenshot/PDF)",
+                            tooltip: "Optional. Screenshot or PDF of the approval email received from management",
+                            file: _approvalMailFile,
+                            onPick: () => _pickFile('approval'),
+                            onClear: () => setState(() => _approvalMailFile = null),
+                          ),
                         ],
 
                         const SizedBox(height: 24),
@@ -455,7 +453,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
 
             // Bill file picker for this entry (first — OCR auto-fills amount & date)
             _buildFileUploadSection(
-              title: "Bill / Receipt",
+              title: "Bill / Receipt*",
               tooltip: "Original bill or receipt issued by the vendor",
               file: entry.billFile,
               onPick: () async {
@@ -512,7 +510,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
             TextFormField(
               controller: entry.amountController,
               decoration: InputDecoration(
-                labelText: 'Amount (₹)',
+                labelText: 'Amount (₹)*',
                 prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
                 filled: true,
                 fillColor: Colors.white,
@@ -536,7 +534,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
               },
               child: InputDecorator(
                 decoration: InputDecoration(
-                  labelText: 'Date of Bill',
+                  labelText: 'Date of Bill*',
                   prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlue),
                   filled: true,
                   fillColor: Colors.white,
@@ -550,7 +548,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
             if (_selectedCategory != 'Parking') ...[
               const SizedBox(height: 12),
               _buildFileUploadSection(
-                title: "Payment Proof",
+                title: "Payment Proof*",
                 tooltip: "Screenshot of the payment made (e.g. UPI, bank transfer)",
                 file: entry.paymentProofFile,
                 onPick: () async {
@@ -618,8 +616,14 @@ class _AddBillScreenState extends State<AddBillScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark)),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: kPrimaryBlueDark),
+                ),
+              ),
               if (tooltip != null) ...[
                 const SizedBox(width: 6),
                 Tooltip(
@@ -829,10 +833,6 @@ class _AddBillScreenState extends State<AddBillScreen> {
             return;
           }
         }
-        if (_selectedCategory != 'Parking' && _approvalMailFile == null) {
-          _showErrorDialog("Approval Mail is required for this category.");
-          return;
-        }
 
         final bool backendAvailable = await ConnectivityService.isBackendAvailable();
         if (!backendAvailable) {
@@ -885,11 +885,9 @@ class _AddBillScreenState extends State<AddBillScreen> {
         _showErrorDialog("Please upload the main bill receipt.");
         return;
       }
-      if (_selectedCategory != 'Parking') {
-        if (_approvalMailFile == null || _paymentProofFile == null) {
-          _showErrorDialog("Approval Mail and Payment Proof are required for this category.");
-          return;
-        }
+      if (_selectedCategory != 'Parking' && _paymentProofFile == null) {
+        _showErrorDialog("Payment Proof is required for this category.");
+        return;
       }
 
       final bool backendAvailable = await ConnectivityService.isBackendAvailable();

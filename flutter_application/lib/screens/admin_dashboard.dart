@@ -489,21 +489,15 @@ class _AdminDashboardState extends State<AdminDashboard>
 
           const SizedBox(height: 14),
 
-          if (_selectedStatus != null && _filteredBills.isNotEmpty) ...[
-            if (_selectedStatus!.toLowerCase() == 'pending')
-              _batchActionButton(
-                label: "Approve All Pending (${_filteredBills.length})",
-                icon: Icons.done_all,
-                color: Colors.green,
-                onPressed: _handleApproveAllBills,
-              ),
-            if (_selectedStatus!.toLowerCase() == 'approved')
-              _batchActionButton(
-                label: "Mark All Paid (${_filteredBills.length})",
-                icon: Icons.payments,
-                color: Colors.blue,
-                onPressed: _handleMarkAllAsPaid,
-              ),
+          if (_selectedStatus != null &&
+              _filteredBills.isNotEmpty &&
+              _selectedStatus!.toLowerCase() == 'approved') ...[
+            _batchActionButton(
+              label: "Mark All Paid (${_filteredBills.length})",
+              icon: Icons.payments,
+              color: Colors.blue,
+              onPressed: _handleMarkAllAsPaid,
+            ),
             const SizedBox(height: 16),
           ],
 
@@ -2640,32 +2634,6 @@ class _AdminDashboardState extends State<AdminDashboard>
     }
 
     return list;
-  }
-
-  Future<void> _handleApproveAllBills() async {
-    bool? confirm = await _showConfirmDialog(
-        "Approve All",
-        "Are you sure you want to approve all ${_filteredBills.length} pending bills currently shown?"
-    );
-    if (confirm != true) return;
-
-    setState(() => _isLoading = true);
-    int successCount = 0;
-
-    for (final bill in _filteredBills) {
-      final success = await ApiService.changeStatus(
-        employeeId: int.parse(_adminId!),
-        password: _adminPassword!,
-        billId: bill.billId,
-        status: "APPROVED",
-      );
-      if (success) successCount++;
-    }
-
-    _loadData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$successCount bills approved successfully!'), backgroundColor: Colors.green),
-    );
   }
 
   Future<void> _handleMarkAllAsPaid() async {

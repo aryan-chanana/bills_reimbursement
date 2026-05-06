@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 class ApiService {
   static const String baseUrl = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://192.168.102.150:8081'
+      defaultValue: 'http://192.168.1.9:8081'
   );
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
