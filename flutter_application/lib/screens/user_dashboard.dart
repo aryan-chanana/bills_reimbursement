@@ -682,7 +682,7 @@ class _UserDashboardState extends State<UserDashboard> {
                             DropdownButtonFormField<String>(
                               value: selectedCategory,
                               decoration: InputDecoration(
-                                labelText: "Category",
+                                labelText: "Category*",
                                 prefixIcon: Icon(Icons.category_rounded, color: kPrimaryBlueDark),
                                 filled: true, fillColor: Colors.white,
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -705,7 +705,7 @@ class _UserDashboardState extends State<UserDashboard> {
                               TextFormField(
                                 controller: descriptionController,
                                 decoration: InputDecoration(
-                                  labelText: "Description",
+                                  labelText: "Description*",
                                   prefixIcon: Icon(Icons.description_rounded, color: kPrimaryBlue),
                                   filled: true, fillColor: Colors.white,
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -719,7 +719,7 @@ class _UserDashboardState extends State<UserDashboard> {
                             TextFormField(
                               controller: amountController,
                               decoration: InputDecoration(
-                                labelText: "Amount (₹)",
+                                labelText: "Amount (₹)*",
                                 prefixIcon: Icon(Icons.currency_rupee_rounded, color: kPrimaryBlue),
                                 filled: true, fillColor: Colors.white,
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -737,7 +737,7 @@ class _UserDashboardState extends State<UserDashboard> {
                               },
                               child: InputDecorator(
                                 decoration: InputDecoration(
-                                  labelText: "Date",
+                                  labelText: "Date of Bill*",
                                   prefixIcon: Icon(Icons.calendar_today_rounded, color: kPrimaryBlueDark),
                                   filled: true, fillColor: Colors.white,
                                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
@@ -749,7 +749,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
                             // BILL FILE
                             buildFileSection(
-                              title: "Bill / Receipt",
+                              title: "Bill / Receipt*",
                               existingPath: bill.billImagePath,
                               newFile: newBillFile,
                               onPick: () => pickFile('bill', (f) => setStateDialog(() => newBillFile = f)),
@@ -761,19 +761,19 @@ class _UserDashboardState extends State<UserDashboard> {
                             if (selectedCategory != 'Parking') ...[
                               const SizedBox(height: 12),
                               buildFileSection(
-                                title: "Approval Mail",
-                                existingPath: bill.approvalMailPath,
-                                newFile: newApprovalFile,
-                                onPick: () => pickFile('approval', (f) => setStateDialog(() => newApprovalFile = f)),
-                                onClear: () => setStateDialog(() => newApprovalFile = null),
-                              ),
-                              const SizedBox(height: 12),
-                              buildFileSection(
-                                title: "Payment Proof",
+                                title: "Payment Proof (Screenshot/PDF)*",
                                 existingPath: bill.paymentProofPath,
                                 newFile: newPaymentFile,
                                 onPick: () => pickFile('payment', (f) => setStateDialog(() => newPaymentFile = f)),
                                 onClear: () => setStateDialog(() => newPaymentFile = null),
+                              ),
+                              const SizedBox(height: 12),
+                              buildFileSection(
+                                title: "Approval Mail (Screenshot/PDF)",
+                                existingPath: bill.approvalMailPath,
+                                newFile: newApprovalFile,
+                                onPick: () => pickFile('approval', (f) => setStateDialog(() => newApprovalFile = f)),
+                                onClear: () => setStateDialog(() => newApprovalFile = null),
                               ),
                             ],
 
