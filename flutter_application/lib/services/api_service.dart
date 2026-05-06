@@ -9,7 +9,7 @@ import 'package:intl/intl.dart';
 class ApiService {
   static const String baseUrl = String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://192.168.102.150:8081'
+      defaultValue: 'http://192.168.1.9:8081'
   );
 
   static Map<String, String> getAuthHeaders(String employeeId, String password) {
@@ -18,6 +18,40 @@ class ApiService {
       'Content-Type': 'application/json',
       'Authorization': basicAuth,
     };
+  }
+
+  /// Exchange a Microsoft Entra ID token for a local session.
+  ///
+  /// On success, returns the matching [User] together with an opaque
+  /// `ssoCredential` string the caller stores in place of a password —
+  /// subsequent API calls keep using Basic Auth and the backend's
+  /// `CombinedAuthenticationProvider` accepts it as an alternative to the
+  /// user's password.
+  ///
+  /// Throws [Exception] with a user-facing message on 4xx responses
+  /// (account not registered / pending approval / disabled / token invalid).
+  static Future<({User user, String ssoCredential})> loginWithMicrosoft(String idToken) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/auth/microsoft'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({'idToken': idToken}),
+    );
+
+    if (response.statusCode == 200) {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final user = User.fromJson(body['user'] as Map<String, dynamic>);
+      final cred = body['ssoCredential'] as String;
+      return (user: user, ssoCredential: cred);
+    }
+
+    String message;
+    try {
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      message = (body['error'] ?? 'Microsoft sign-in failed').toString();
+    } catch (_) {
+      message = 'Microsoft sign-in failed (${response.statusCode}).';
+    }
+    throw Exception(message);
   }
 
   // Users

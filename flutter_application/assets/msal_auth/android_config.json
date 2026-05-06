@@ -1,0 +1,15 @@
+{
+  "authorization_user_agent": "DEFAULT",
+  "broker_redirect_uri_registered": true,
+  "account_mode": "SINGLE",
+  "_comment": "client_id and redirect_uri are injected from Dart at runtime by msal_auth; do not hardcode them here.",
+  "authorities": [
+    {
+      "type": "AAD",
+      "audience": {
+        "type": "AzureADandPersonalMicrosoftAccount",
+        "tenant_id": "common"
+      }
+    }
+  ]
+}

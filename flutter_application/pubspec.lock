@@ -600,6 +600,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  msal_auth:
+    dependency: "direct main"
+    description:
+      name: msal_auth
+      sha256: f115165584884bad797ea132defc573053c369581c76de514a7d758e4a79da62
+      url: "https://pub.dev"
+    source: hosted
+    version: "3.4.0"
   open_filex:
     dependency: "direct main"
     description:

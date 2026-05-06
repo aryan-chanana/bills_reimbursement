@@ -49,5 +49,30 @@
 		<true/>
 		<key>UIViewControllerBasedStatusBarAppearance</key>
 		<false/>
+		<!-- MSAL: lets the SDK detect Microsoft Authenticator and switch
+		     to the broker if installed; falls back to ASWebAuthenticationSession
+		     (system browser) otherwise. -->
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>msauthv2</string>
+			<string>msauthv3</string>
+		</array>
+		<!-- MSAL: register the redirect URL scheme so the browser/broker can
+		     hand control back to the app after sign-in. The URL host must
+		     match the app's bundle identifier — keep these in sync if the
+		     bundle id changes. -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLName</key>
+				<string>msauth</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>msauth.$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+				</array>
+			</dict>
+		</array>
 	</dict>
 </plist>

@@ -30,6 +30,17 @@ android {
         targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // MSAL redirect URI cert-hash (raw / un-URL-encoded base64 SHA-1 of
+        // the signing certificate). Must match:
+        //   1. The path part of `redirectUri` in lib/config/sso_config.dart
+        //      (after URL-decoding `%2B` → `+`, `%2F` → `/`, `%3D` → `=`).
+        //   2. The signature hash registered on the Azure AD app.
+        // Override per build with `-PmsalCertHash=<base64-sha1>` when
+        // switching keystores (release signing, CI, etc.).
+        manifestPlaceholders["msalCertHash"] =
+                (project.findProperty("msalCertHash") as String?)
+                        ?: "ZB0FOV7lz5O1+Z4OBuYOsVKH3/s="
     }
 
     buildTypes {
@@ -42,6 +53,28 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
+            )
+        }
+    }
+
+    // msal_auth pulls in Apache Tika + HttpCore5, both of which ship
+    // META-INF/DEPENDENCIES, LICENSE, NOTICE files. AGP refuses to merge
+    // duplicates — these manifests aren't needed at runtime, so drop them.
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/LICENSE.md",
+                "META-INF/license.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/NOTICE.md",
+                "META-INF/notice.txt",
+                "META-INF/ASL2.0",
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties"
             )
         }
     }

@@ -5,7 +5,12 @@
       "Bash(flutter analyze *)",
       "Bash(dart run *)",
       "Bash(python *)",
-      "Bash(flutter build *)"
+      "Bash(flutter build *)",
+      "Bash(./mvnw -q -DskipTests compile)",
+      "Bash(./mvnw -DskipTests compile)",
+      "Bash(./mvnw --version)",
+      "Bash(./mvnw -DskipTests -q help:effective-pom)",
+      "Bash(JAVA_HOME=\"/c/Program Files/Java/jdk-21.0.8\" ./mvnw -q -DskipTests compile)"
     ]
   }
 }

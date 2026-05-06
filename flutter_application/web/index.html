@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="A new Flutter project.">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="bills_reimbursement">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>ExpenZ</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!--
+    Microsoft Authentication Library for browsers. Loaded synchronously
+    so `window.msal` is available before Flutter's async bootstrap fires
+    the first SSO call. The shim below (`window.expenzMsal`) is the only
+    surface Dart code touches — see lib/services/microsoft_sso_service_web.dart.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.27.0/lib/msal-browser.min.js"></script>
+  <script>
+    (function () {
+      window.expenzMsal = {
+        _instance: null,
+
+        // Lazy-init so the first sign-in click — not page load — pays the
+        // construction cost. Idempotent: subsequent calls reuse the instance.
+        async _ensureInit(clientId, tenantId) {
+          if (this._instance) return;
+          if (typeof msal === 'undefined') {
+            throw new Error('msal-browser failed to load');
+          }
+          this._instance = new msal.PublicClientApplication({
+            auth: {
+              clientId: clientId,
+              authority: 'https://login.microsoftonline.com/' + tenantId,
+              // Must be registered on the Azure AD app as a "Single-page
+              // application" redirect URI exactly as it appears here at
+              // runtime (origin only, no path).
+              redirectUri: window.location.origin,
+            },
+            cache: {
+              // sessionStorage scopes the cache to the tab so two tabs
+              // don't trample each other's auth state.
+              cacheLocation: 'sessionStorage',
+              storeAuthStateInCookie: false,
+            },
+          });
+          await this._instance.initialize();
+        },
+
+        async signIn(clientId, tenantId, scopes) {
+          await this._ensureInit(clientId, tenantId);
+          var result = await this._instance.loginPopup({
+            scopes: scopes.split(' ').filter(function (s) { return s.length; }),
+            // Force the account chooser even when MSAL has a cached account,
+            // matching the mobile flow's behaviour.
+            prompt: 'select_account',
+          });
+          return result.idToken;
+        },
+
+        async signOut() {
+          if (!this._instance) return;
+          var accounts = this._instance.getAllAccounts();
+          for (var i = 0; i < accounts.length; i++) {
+            try {
+              // clearCache wipes MSAL state without round-tripping to
+              // Microsoft (logoutPopup would also redirect the user).
+              await this._instance.clearCache({ account: accounts[i] });
+            } catch (e) { /* ignore */ }
+          }
+        },
+      };
+    })();
+  </script>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

@@ -31,6 +31,31 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2"/>
+
+        <!--
+          MSAL redirect handler. The base64-encoded SHA-1 of the signing
+          certificate is supplied via the `msalCertHash` manifest placeholder
+          in `android/app/build.gradle.kts`. Generate it with:
+            keytool -exportcert -alias <alias> -keystore <keystore> | \
+              openssl sha1 -binary | openssl base64
+          (For the debug build, alias=androiddebugkey, keystore=~/.android/debug.keystore, password=android.)
+          Then register `msauth://com.example.bills_reimbursement/<that-hash>`
+          on the Azure AD app registration.
+        -->
+        <activity
+            android:name="com.microsoft.identity.client.BrowserTabActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:host="com.example.bills_reimbursement"
+                    android:path="/ZB0FOV7lz5O1+Z4OBuYOsVKH3/s="
+                    android:scheme="msauth"/>
+            </intent-filter>
+        </activity>
+
         <!-- File provider for sharing files -->
         <provider
             android:name="androidx.core.content.FileProvider"

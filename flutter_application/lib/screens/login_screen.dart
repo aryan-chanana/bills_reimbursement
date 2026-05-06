@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 // Adjust these imports based on your actual project structure
+import '../config/sso_config.dart';
 import '../models/user_model.dart';
 import '../services/api_service.dart';
 import '../services/connectivity_service.dart';
+import '../services/microsoft_sso_service.dart';
 import '../services/notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -225,6 +227,51 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
+                      // Microsoft SSO (only on the login tab)
+                      if (!_isSignUp) ...[
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(child: Divider(color: Colors.grey.shade300)),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              child: Text(
+                                'or',
+                                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                              ),
+                            ),
+                            Expanded(child: Divider(color: Colors.grey.shade300)),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 50,
+                          child: OutlinedButton.icon(
+                            onPressed: _isLoading ? null : _handleMicrosoftSignIn,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF1F1F1F),
+                              backgroundColor: Colors.white,
+                              side: BorderSide(color: Colors.grey.shade300),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: Image.asset(
+                              'assets/images/microsoft_logo.png',
+                              width: 20,
+                              height: 20,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.window, size: 20, color: Color(0xFF0078D4)),
+                            ),
+                            label: const Text(
+                              'Sign in with Microsoft',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                      ],
+
                       const SizedBox(height: 18),
 
                       // Switch Login/Signup
@@ -345,6 +392,7 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (mounted) {
         final msg = e.toString().replaceFirst('Exception: ', '');
+        print("error :: " + e.toString());
         _showErrorDialog(msg);
       }
     } finally {
@@ -353,6 +401,63 @@ class _LoginScreenState extends State<LoginScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _handleMicrosoftSignIn() async {
+    if (!SsoConfig.isConfigured) {
+      _showErrorDialog(
+        'Microsoft sign-in is not configured for this build.\n\n'
+        'Rebuild the app with --dart-define=AZURE_AD_TENANT=<tenant-id> '
+        '--dart-define=AZURE_AD_CLIENT_ID=<client-id>.',
+      );
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() => _isLoading = true);
+
+    try {
+      final bool backendAvailable = await ConnectivityService.isBackendAvailable();
+      if (!backendAvailable) {
+        _showErrorDialog('Unable to connect to server.\nPlease try again later.');
+        return;
+      }
+
+      final idToken = await MicrosoftSsoService.signIn();
+      if (idToken == null) {
+        // User dismissed the Microsoft sign-in flow.
+        return;
+      }
+
+      final result = await ApiService.loginWithMicrosoft(idToken);
+      // The SSO credential plays the role of `password` in the existing
+      // session storage — the backend's CombinedAuthenticationProvider
+      // accepts it via Basic Auth on subsequent API calls.
+      await _saveUserSession(result.user, result.ssoCredential);
+
+      try {
+        final token = await NotificationService.requestPermissionAndGetToken();
+        if (token != null) {
+          await ApiService.updateFcmToken(
+              result.user.employeeId.toString(), result.ssoCredential, token);
+        }
+      } catch (_) {}
+
+      if (!mounted) return;
+      if (result.user.isAdmin) {
+        _navigateToAdminDashboard();
+      } else {
+        _navigateToUserDashboard();
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = e.toString().replaceFirst('Exception: ', '');
+        print("error :: " + e.toString());
+        _showErrorDialog(msg);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
