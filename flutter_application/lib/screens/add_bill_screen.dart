@@ -399,8 +399,8 @@ class _AddBillScreenState extends State<AddBillScreen> {
                 )
             ),
 
-            // OCR overlay
-            if (_isAnalyzing)
+            // OCR overlay (Android-only — OCR doesn't run on web)
+            if (!kIsWeb && _isAnalyzing)
               Container(
                 color: Colors.black54,
                 child: const Center(
@@ -460,6 +460,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                 FilePickerResult? result = await FilePicker.platform.pickFiles(
                   type: FileType.custom,
                   allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+                  withData: kIsWeb,
                 );
                 if (result != null) {
                   setState(() => entry.billFile = result.files.first);
@@ -475,11 +476,13 @@ class _AddBillScreenState extends State<AddBillScreen> {
                 try {
                   final pickedFile = await ImagePicker().pickImage(source: ImageSource.camera);
                   if (pickedFile == null) return;
+                  final bytes = kIsWeb ? await pickedFile.readAsBytes() : null;
                   setState(() {
                     entry.billFile = PlatformFile(
                       name: pickedFile.name,
-                      size: 0,
-                      path: pickedFile.path,
+                      size: bytes?.length ?? 0,
+                      path: kIsWeb ? null : pickedFile.path,
+                      bytes: bytes,
                     );
                   });
                   if (!kIsWeb) _runOcr(File(pickedFile.path));
@@ -555,6 +558,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
                   FilePickerResult? result = await FilePicker.platform.pickFiles(
                     type: FileType.custom,
                     allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+                    withData: kIsWeb,
                   );
                   if (result != null) setState(() => entry.paymentProofFile = result.files.first);
                 },
@@ -717,6 +721,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+      withData: kIsWeb,
     );
 
     if (result != null) {
@@ -738,11 +743,13 @@ class _AddBillScreenState extends State<AddBillScreen> {
       final pickedFile = await ImagePicker().pickImage(source: ImageSource.camera);
       if (pickedFile == null) return;
 
+      final bytes = kIsWeb ? await pickedFile.readAsBytes() : null;
       setState(() {
         _billFile = PlatformFile(
           name: pickedFile.name,
-          size: 0,
-          path: pickedFile.path,
+          size: bytes?.length ?? 0,
+          path: kIsWeb ? null : pickedFile.path,
+          bytes: bytes,
         );
       });
 
@@ -786,6 +793,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
   }
 
   Future<void> _runOcr(File image) async {
+    if (kIsWeb) return; // OCR (ML Kit) is Android/iOS only — no overlay, no snackbar.
     setState(() => _isAnalyzing = true);
     try {
       final extractedData = await OcrService.processImage(image);

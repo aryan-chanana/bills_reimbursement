@@ -526,6 +526,7 @@ class _UserDashboardState extends State<UserDashboard> {
           final result = await FilePicker.platform.pickFiles(
             type: FileType.custom,
             allowedExtensions: ['jpg', 'jpeg', 'png', 'pdf'],
+            withData: kIsWeb,
           );
           if (result != null) onPicked(result.files.first);
         }
@@ -534,7 +535,13 @@ class _UserDashboardState extends State<UserDashboard> {
           try {
             final XFile? photo = await ImagePicker().pickImage(source: ImageSource.camera);
             if (photo == null) return;
-            onPicked(PlatformFile(name: photo.name, size: 0, path: photo.path));
+            final bytes = kIsWeb ? await photo.readAsBytes() : null;
+            onPicked(PlatformFile(
+              name: photo.name,
+              size: bytes?.length ?? 0,
+              path: kIsWeb ? null : photo.path,
+              bytes: bytes,
+            ));
           } on PlatformException catch (_) {
             showDialog(
               context: context,
